@@ -1,0 +1,2476 @@
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Picture Studio Pro & Greeting Card Creator</title>
+
+  <!-- Tailwind CSS CDN -->
+  <script src="https://cdn.tailwindcss.com"></script>
+
+  <!-- React & React DOM CDN -->
+  <script src="https://unpkg.com/react@18/umd/react.production.min.js" crossorigin></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js" crossorigin></script>
+
+  <!-- Babel Standalone CDN -->
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+
+  <!-- Lucide Icons CDN -->
+  <script src="https://unpkg.com/lucide@latest"></script>
+
+  <style>
+    /* Custom Scrollbar Styling */
+    ::-webkit-scrollbar {
+      width: 6px;
+      height: 6px;
+    }
+    ::-webkit-scrollbar-track {
+      background: #0f172a;
+    }
+    ::-webkit-scrollbar-thumb {
+      background: #334155;
+      border-radius: 4px;
+    }
+    ::-webkit-scrollbar-thumb:hover {
+      background: #475569;
+    }
+
+    /* Hide scrollbar utility for horizontal toolbars */
+    .scrollbar-none::-webkit-scrollbar {
+      display: none;
+    }
+    .scrollbar-none {
+      -ms-overflow-style: none;
+      scrollbar-width: none;
+    }
+
+    /* Prevent touch scrolling while dragging canvas frames/elements */
+    .touch-pan-none {
+      touch-action: none;
+      user-select: none;
+    }
+
+    .draw-cursor {
+      cursor: crosshair;
+    }
+  </style>
+</head>
+<body class="bg-slate-950 text-slate-100 font-sans antialiased selection:bg-indigo-500 selection:text-white min-h-screen">
+  <div id="root"></div>
+
+  <script type="text/babel">
+    const { useState, useEffect, useRef } = React;
+
+    // Helper component to render Lucide SVG icons dynamically inside React
+    const Icon = ({ name, className = "w-4 h-4", ...props }) => {
+      const iconRef = useRef(null);
+
+      useEffect(() => {
+        if (iconRef.current && window.lucide) {
+          iconRef.current.innerHTML = `<i data-lucide="${name}" class="${className}"></i>`;
+          window.lucide.createIcons({
+            root: iconRef.current,
+            attrs: { class: className },
+            nameAttr: 'data-lucide'
+          });
+        }
+      }, [name, className]);
+
+      return <span ref={iconRef} className="inline-flex items-center justify-center pointer-events-none" {...props} />;
+    };
+
+    // Standard Universal Print & Frame Sizes Database
+    const FRAME_SIZE_CATEGORIES = [
+      {
+        category: 'Standard & Small Desk Sizes',
+        sizes: [
+          { id: '4x6', label: '4 x 6 in (10 x 15 cm)', width: 1200, height: 1800, aspect: '2/3', desc: 'Universal snapshot / postcard' },
+          { id: '5x7', label: '5 x 7 in (13 x 18 cm)', width: 1500, height: 2100, aspect: '5/7', desc: 'Portraits & greeting cards' },
+          { id: '6x8', label: '6 x 8 in (15 x 20 cm)', width: 1800, height: 2400, aspect: '3/4', desc: 'Certificates & shelf prints' },
+          { id: '8x10', label: '8 x 10 in (20 x 25 cm)', width: 2400, height: 3000, aspect: '4/5', desc: 'Most popular frame size' }
+        ]
+      },
+      {
+        category: 'Medium & International (ISO) Sizes',
+        sizes: [
+          { id: 'letter', label: '8.5 x 11 in (Letter)', width: 2550, height: 3300, aspect: '8.5/11', desc: 'Diplomas & documents' },
+          { id: 'a4', label: 'A4 (21 x 29.7 cm)', width: 2480, height: 3508, aspect: '1/1.414', desc: 'Standard ISO / IKEA frames' },
+          { id: '11x14', label: '11 x 14 in (28 x 36 cm)', width: 3300, height: 4200, aspect: '11/14', desc: 'Matted art prints' },
+          { id: '12x16', label: '12 x 16 in (30 x 41 cm)', width: 3600, height: 4800, aspect: '3/4', desc: 'Smartphone photos (3:4)' }
+        ]
+      },
+      {
+        category: 'Square & Panoramic Sizes',
+        sizes: [
+          { id: '12x12', label: '12 x 12 in (30 x 30 cm)', width: 3600, height: 3600, aspect: '1/1', desc: 'Square album / Instagram' },
+          { id: '8x16', label: '8 x 16 in (20 x 41 cm)', width: 2400, height: 4800, aspect: '1/2', desc: 'Compact panoramic strip' },
+          { id: '10x20', label: '10 x 20 in (25 x 51 cm)', width: 3000, height: 6000, aspect: '1/2', desc: 'Wide skyline photo strip' },
+          { id: '12x36', label: '12 x 36 in (30 x 91 cm)', width: 3600, height: 10800, aspect: '1/3', desc: 'Ultra panoramic landscape' }
+        ]
+      },
+      {
+        category: 'Large Wall & Poster Sizes',
+        sizes: [
+          { id: '16x20', label: '16 x 20 in (41 x 51 cm)', width: 4800, height: 6000, aspect: '4/5', desc: 'Statement wall art' },
+          { id: '18x24', label: '18 x 24 in (46 x 61 cm)', width: 5400, height: 7200, aspect: '3/4', desc: 'Standard medium poster' },
+          { id: 'a2', label: 'A2 (42 x 59.4 cm)', width: 4960, height: 7016, aspect: '1/1.414', desc: 'International medium poster' },
+          { id: '24x36', label: '24 x 36 in (61 x 91 cm)', width: 7200, height: 10800, aspect: '2/3', desc: 'Large movie poster display' }
+        ]
+      }
+    ];
+
+    const ALL_SIZES_FLAT = FRAME_SIZE_CATEGORIES.flatMap(cat => cat.sizes);
+
+    // Preset Background Colors & Gradients
+    const PRESET_BG_COLORS = [
+      { label: 'Transparent', value: 'transparent' },
+      { label: 'Pure White', value: '#ffffff' },
+      { label: 'Dark Slate', value: '#0f172a' },
+      { label: 'Soft Gray', value: '#f1f5f9' },
+      { label: 'Crimson Glow', value: 'linear-gradient(135deg, #f43f5e 0%, #fb7185 100%)' },
+      { label: 'Oceanic Blue', value: 'linear-gradient(135deg, #0284c7 0%, #38bdf8 100%)' },
+      { label: 'Emerald Mint', value: 'linear-gradient(135deg, #059669 0%, #34d399 100%)' },
+      { label: 'Sunset Amber', value: 'linear-gradient(135deg, #d97706 0%, #fbbf24 100%)' },
+      { label: 'Deep Purple', value: 'linear-gradient(135deg, #581c87 0%, #a855f7 100%)' },
+      { label: 'Festive Gold', value: 'linear-gradient(135deg, #b45309 0%, #fef08a 100%)' }
+    ];
+
+    // Cartoon, Drawing & Pencil Art Presets
+    const CARTOON_FX_PRESETS = [
+      { id: 'none', label: 'Original', icon: 'image' },
+      { id: 'pencil', label: 'Pencil Sketch', icon: 'edit-2' },
+      { id: 'ink', label: 'Ink Line Art', icon: 'feather' },
+      { id: 'cartoon', label: 'Anime Cartoon', icon: 'sparkles' },
+      { id: 'comic', label: 'Comic Pop-Art', icon: 'zap' },
+      { id: 'vector', label: 'Poster Vector', icon: 'layers' },
+      { id: 'glow', label: 'Vibrant Glow', icon: 'sun' }
+    ];
+
+    // Frame Shape Presets
+    const FRAME_SHAPE_PRESETS = [
+      { id: 'rectangle', label: 'Rectangle', shapeClass: 'rounded-lg' },
+      { id: 'square', label: 'Square (1:1)', shapeClass: 'rounded-xl aspect-square' },
+      { id: 'polaroid', label: 'Polaroid Frame', shapeClass: 'bg-white p-2 pb-6 shadow-xl rounded-sm text-slate-900' },
+      { id: 'circle', label: 'Circle Bubble', shapeClass: 'rounded-full aspect-square overflow-hidden' },
+      { id: 'fancy', label: 'Fancy Border', shapeClass: 'rounded-2xl border-4 border-indigo-400 shadow-inner' }
+    ];
+
+    // Greeting Card Preset Themes
+    const GREETING_CARD_TEMPLATES = [
+      { id: 'none', label: 'Standard Layout', theme: 'none', border: 'border-transparent' },
+      { id: 'birthday', label: 'Happy Birthday', theme: 'birthday', border: 'border-amber-400 border-4', bg: 'linear-gradient(135deg, #ec4899 0%, #8b5cf6 100%)', title: 'Happy Birthday!', sub: 'Wishing you a magical day filled with joy & laughter!' },
+      { id: 'holiday', label: 'Holiday / Christmas', theme: 'holiday', border: 'border-emerald-400 border-4', bg: 'linear-gradient(135deg, #065f46 0%, #15803d 100%)', title: 'Merry & Bright!', sub: 'Warmest holiday wishes and happy New Year!' },
+      { id: 'thankyou', label: 'Thank You', theme: 'thankyou', border: 'border-blue-400 border-4', bg: 'linear-gradient(135deg, #0284c7 0%, #6366f1 100%)', title: 'Thank You So Much!', sub: 'Grateful for your kindness and amazing support!' },
+      { id: 'congrats', label: 'Congratulations', theme: 'congrats', border: 'border-yellow-300 border-4', bg: 'linear-gradient(135deg, #b45309 0%, #f59e0b 100%)', title: 'Congratulations!', sub: 'Celebrating your fantastic achievement!' },
+      { id: 'love', label: 'Love & Romance', theme: 'love', border: 'border-rose-400 border-4', bg: 'linear-gradient(135deg, #be123c 0%, #fb7185 100%)', title: 'With All My Love', sub: 'You make every single moment extra special!' }
+    ];
+
+    const STICKER_PRESETS = [
+      '❤️', '💖', '🎂', '🎉', '🎁', '⭐', '✨', '🔥', '👑', '🥳',
+      '😍', '😎', '🌸', '🎈', '🏆', '💯', '🌈', '🦋', '🍀', '🍕'
+    ];
+
+    function App() {
+      // --- Authentication State ---
+      const [authMode, setAuthMode] = useState('login'); // 'login' | 'signup' | 'forgot' | 'reset' | 'pending_activation'
+      const [authEmail, setAuthEmail] = useState('');
+      const [authPassword, setAuthPassword] = useState('');
+      const [confirmPassword, setConfirmPassword] = useState('');
+      const [isLoggedIn, setIsLoggedIn] = useState(false);
+      const [currentUserEmail, setCurrentUserEmail] = useState('');
+
+      const [authError, setAuthError] = useState('');
+      const [authSuccess, setAuthSuccess] = useState('');
+      const [isAdmin, setIsAdmin] = useState(false);
+
+      // Mail Link Simulation State
+      const [simulatedMailInbox, setSimulatedMailInbox] = useState([]);
+      const [resetTokenInput, setResetTokenInput] = useState('');
+      const [newResetPassword, setNewResetPassword] = useState('');
+
+      const [registeredAccounts, setRegisteredAccounts] = useState(() => {
+        try {
+          const saved = localStorage.getItem('app_users_db');
+          return saved ? JSON.parse(saved) : [
+            { email: 'user@example.com', password: '0000', id: 'UID-1001', isActivated: true },
+            { email: 'admin@studio.com', password: '0000', id: 'UID-ADMIN', isActivated: true }
+          ];
+        } catch (err) {
+          console.error('Failed reading accounts from storage:', err);
+          return [
+            { email: 'user@example.com', password: '0000', id: 'UID-1001', isActivated: true },
+            { email: 'admin@studio.com', password: '0000', id: 'UID-ADMIN', isActivated: true }
+          ];
+        }
+      });
+
+      useEffect(() => {
+        try {
+          localStorage.setItem('app_users_db', JSON.stringify(registeredAccounts));
+        } catch (err) {
+          console.error('Failed saving accounts to storage:', err);
+        }
+      }, [registeredAccounts]);
+
+      const [oldPassInput, setOldPassInput] = useState('');
+      const [newPassInput, setNewPassInput] = useState('');
+      const [passChangeStatus, setPassChangeStatus] = useState({ type: '', msg: '' });
+
+      // --- Navigation Tabs ---
+      const [activeTab, setActiveTab] = useState('workbench');
+      const [activeToolCategory, setActiveToolCategory] = useState('edit');
+
+      // --- Photo & Layout History State (UNDO / REDO) ---
+      const [history, setHistory] = useState([]);
+      const [historyStep, setHistoryStep] = useState(-1);
+
+      const [images, setImages] = useState([]);
+      const [selectedImageIds, setSelectedImageIds] = useState([]);
+      const [editingImageId, setEditingImageId] = useState(null);
+
+      // Frame Dimension Settings
+      const [selectedSizeId, setSelectedSizeId] = useState('4x6');
+      const [orientation, setOrientation] = useState('portrait');
+      const [manualWidth, setManualWidth] = useState(1200);
+      const [manualHeight, setManualHeight] = useState(1800);
+      const [isCustomDimensions, setIsCustomDimensions] = useState(false);
+
+      const [canvasZoom, setCanvasZoom] = useState(1);
+      const [isDraggingFrame, setIsDraggingFrame] = useState(false);
+      const dragStartRef = useRef({ x: 0, y: 0 });
+      const initialPanRef = useRef({ panX: 0, panY: 0 });
+
+      // Overlays
+      const [placedElements, setPlacedElements] = useState([]);
+      const [selectedElementId, setSelectedElementId] = useState(null);
+      const [isDraggingElement, setIsDraggingElement] = useState(false);
+      const elementDragStartRef = useRef({ x: 0, y: 0, initialX: 0, initialY: 0 });
+
+      const [textInput, setTextInput] = useState('');
+      const [textColor, setTextColor] = useState('#ffffff');
+      const [textBg, setTextBg] = useState('#000000');
+      const [textSize, setTextSize] = useState(24);
+
+      // Layout Controls
+      const [layoutMode, setLayoutMode] = useState('auto');
+      const [columns, setColumns] = useState(3);
+      const [gap, setGap] = useState(12);
+      const [padding, setPadding] = useState(16);
+      const [borderRadius, setBorderRadius] = useState(8);
+      const [bgColor, setBgColor] = useState('#ffffff');
+      const [customBgImage, setCustomBgImage] = useState(null);
+      const [exportFormat, setExportFormat] = useState('png');
+
+      // Greeting Card State
+      const [cardPreset, setCardPreset] = useState('none');
+      const [cardTitleText, setCardTitleText] = useState('Happy Birthday!');
+      const [cardSubText, setCardSubText] = useState('Wishing you a fantastic day filled with joy!');
+
+      // System Announcement
+      const [appNotice, setAppNotice] = useState('Welcome to AM Picture Studio! Account email activation & password reset links active.');
+      const [adminNoticeInput, setAdminNoticeInput] = useState('');
+
+      // --- PHOTOSHOP MODAL WORKSPACE STATE ---
+      const [showPsModal, setShowPsModal] = useState(false);
+      const [psActiveTool, setPsActiveTool] = useState('brush');
+      const [psLayers, setPsLayers] = useState([
+        { id: 'ps-layer-1', name: 'Background Base', visible: true, locked: false, opacity: 100 },
+        { id: 'ps-layer-2', name: 'Retouch Layer', visible: true, locked: false, opacity: 90 }
+      ]);
+      const [psActiveLayerId, setPsActiveLayerId] = useState('ps-layer-1');
+      const [psBrushSize, setPsBrushSize] = useState(12);
+      const [psBrushColor, setPsBrushColor] = useState('#38bdf8');
+      const [psEyedropperColor, setPsEyedropperColor] = useState('#ffffff');
+      const [psSizeId, setPsSizeId] = useState('4x6');
+      const [psOrientation, setPsOrientation] = useState('portrait');
+      const [psExposure, setPsExposure] = useState(0);
+      const [psVibrance, setPsVibrance] = useState(0);
+      const psCanvasRef = useRef(null);
+
+      const [psHistory, setPsHistory] = useState([]);
+      const [psHistoryStep, setPsHistoryStep] = useState(-1);
+
+      const fileInputRef = useRef(null);
+      const bgFileInputRef = useRef(null);
+
+      useEffect(() => {
+        if (window.lucide) {
+          window.lucide.createIcons();
+        }
+      });
+
+      // --- HISTORY SNAPSHOT ENGINE ---
+      const saveStateToHistory = (newImages, newElements) => {
+        const snapshot = {
+          images: JSON.parse(JSON.stringify(newImages || images)),
+          placedElements: JSON.parse(JSON.stringify(newElements || placedElements))
+        };
+        const nextHistory = history.slice(0, historyStep + 1);
+        nextHistory.push(snapshot);
+        setHistory(nextHistory);
+        setHistoryStep(nextHistory.length - 1);
+      };
+
+      const handleUndo = () => {
+        if (historyStep > 0) {
+          const prevStep = historyStep - 1;
+          const state = history[prevStep];
+          setImages(JSON.parse(JSON.stringify(state.images)));
+          setPlacedElements(JSON.parse(JSON.stringify(state.placedElements)));
+          setHistoryStep(prevStep);
+        }
+      };
+
+      const handleRedo = () => {
+        if (historyStep < history.length - 1) {
+          const nextStep = historyStep + 1;
+          const state = history[nextStep];
+          setImages(JSON.parse(JSON.stringify(state.images)));
+          setPlacedElements(JSON.parse(JSON.stringify(state.placedElements)));
+          setHistoryStep(nextStep);
+        }
+      };
+
+      useEffect(() => {
+        if (history.length === 0) {
+          saveStateToHistory(images, placedElements);
+        }
+      }, []);
+
+      // --- PHOTOSHOP UNDO / REDO SNAPSHOT ENGINE ---
+      const savePsCanvasHistory = () => {
+        const canvas = psCanvasRef.current;
+        if (!canvas) return;
+        try {
+          const ctx = canvas.getContext('2d');
+          const imgData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+          const nextPsHistory = psHistory.slice(0, psHistoryStep + 1);
+          nextPsHistory.push(imgData);
+          setPsHistory(nextPsHistory);
+          setPsHistoryStep(nextPsHistory.length - 1);
+        } catch (err) {
+          console.error('Could not save Photoshop canvas snapshot:', err);
+        }
+      };
+
+      const handlePsUndo = () => {
+        if (psHistoryStep > 0) {
+          const prevStep = psHistoryStep - 1;
+          const canvas = psCanvasRef.current;
+          if (canvas && psHistory[prevStep]) {
+            const ctx = canvas.getContext('2d');
+            ctx.putImageData(psHistory[prevStep], 0, 0);
+            setPsHistoryStep(prevStep);
+          }
+        }
+      };
+
+      const handlePsRedo = () => {
+        if (psHistoryStep < psHistory.length - 1) {
+          const nextStep = psHistoryStep + 1;
+          const canvas = psCanvasRef.current;
+          if (canvas && psHistory[nextStep]) {
+            const ctx = canvas.getContext('2d');
+            ctx.putImageData(psHistory[nextStep], 0, 0);
+            setPsHistoryStep(nextStep);
+          }
+        }
+      };
+
+      const getActiveDimensions = (sizeId, orient, customW, customH, customFlag) => {
+        if (customFlag) {
+          return {
+            w: parseInt(customW, 10) || 1200,
+            h: parseInt(customH, 10) || 1800,
+            aspectRatioStr: `${parseInt(customW, 10) || 1200}/${parseInt(customH, 10) || 1800}`
+          };
+        }
+        const sizeObj = ALL_SIZES_FLAT.find(s => s.id === sizeId) || ALL_SIZES_FLAT[0];
+        let w = sizeObj.width;
+        let h = sizeObj.height;
+        if (orient === 'landscape') {
+          const tmp = w;
+          w = h;
+          h = tmp;
+        }
+        return { w, h, aspectRatioStr: `${w}/${h}` };
+      };
+
+      const currentLayoutDim = getActiveDimensions(
+        selectedSizeId,
+        orientation,
+        manualWidth,
+        manualHeight,
+        isCustomDimensions
+      );
+
+      // --- PHOTOSHOP CANVAS INITIALIZER ---
+      useEffect(() => {
+        if (showPsModal && psCanvasRef.current) {
+          const canvas = psCanvasRef.current;
+          const ctx = canvas.getContext('2d');
+          const psDim = getActiveDimensions(psSizeId, psOrientation, 1200, 1800, false);
+
+          canvas.width = Math.min(1280, psDim.w);
+          canvas.height = Math.max(240, Math.round(canvas.width * (psDim.h / psDim.w)));
+
+          ctx.fillStyle = '#0f172a';
+          ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+          const activeImgObj = images.find(img => img.id === editingImageId) || images[0];
+          if (activeImgObj) {
+            const img = new Image();
+            img.crossOrigin = 'anonymous';
+            img.onload = () => {
+              ctx.save();
+              ctx.filter = `brightness(${100 + psExposure * 10}%) contrast(${100 + psVibrance}%)`;
+              ctx.drawImage(img, 20, 20, canvas.width - 40, canvas.height - 40);
+              ctx.restore();
+              savePsCanvasHistory();
+            };
+            img.src = activeImgObj.url;
+          } else {
+            ctx.fillStyle = '#38bdf8';
+            ctx.font = 'bold 24px sans-serif';
+            ctx.textAlign = 'center';
+            ctx.fillText('Photoshop Studio Pro Canvas', canvas.width / 2, canvas.height / 2);
+            savePsCanvasHistory();
+          }
+        }
+      }, [showPsModal, psSizeId, psOrientation]);
+
+      const handlePsCanvasMouseDown = (e) => {
+        const canvas = psCanvasRef.current;
+        if (!canvas) return;
+        try {
+          const ctx = canvas.getContext('2d');
+          const rect = canvas.getBoundingClientRect();
+          const x = (e.clientX - rect.left) * (canvas.width / rect.width);
+          const y = (e.clientY - rect.top) * (canvas.height / rect.height);
+
+          if (psActiveTool === 'brush') {
+            ctx.fillStyle = psBrushColor;
+            ctx.beginPath();
+            ctx.arc(x, y, psBrushSize, 0, Math.PI * 2);
+            ctx.fill();
+            savePsCanvasHistory();
+          } else if (psActiveTool === 'eraser') {
+            ctx.clearRect(x - psBrushSize, y - psBrushSize, psBrushSize * 2, psBrushSize * 2);
+            savePsCanvasHistory();
+          } else if (psActiveTool === 'eyedropper') {
+            const pixel = ctx.getImageData(Math.max(0, Math.floor(x)), Math.max(0, Math.floor(y)), 1, 1).data;
+            const hex = `#${((1 << 24) + (pixel[0] << 16) + (pixel[1] << 8) + pixel[2]).toString(16).slice(1)}`;
+            setPsEyedropperColor(hex);
+            setPsBrushColor(hex);
+          } else if (psActiveTool === 'stamp') {
+            const sampleData = ctx.getImageData(Math.max(0, Math.floor(x - 30)), Math.max(0, Math.floor(y - 30)), 40, 40);
+            ctx.putImageData(sampleData, Math.floor(x + 15), Math.floor(y + 15));
+            savePsCanvasHistory();
+          }
+        } catch (err) {
+          console.error('Photoshop canvas draw error:', err);
+        }
+      };
+
+      const addPsLayer = () => {
+        const newLayer = {
+          id: `ps-layer-${Date.now()}`,
+          name: `Layer ${psLayers.length + 1}`,
+          visible: true,
+          locked: false,
+          opacity: 100
+        };
+        setPsLayers(prev => [...prev, newLayer]);
+        setPsActiveLayerId(newLayer.id);
+      };
+
+      const deletePsLayer = (id) => {
+        if (psLayers.length <= 1) return;
+        setPsLayers(prev => prev.filter(l => l.id !== id));
+      };
+
+      // --- AUTHENTICATION & MAIL LINK HANDLERS ---
+      const handleLogin = (e) => {
+        e.preventDefault();
+        setAuthError('');
+        setAuthSuccess('');
+        if (!authEmail || !authEmail.includes('@')) {
+          setAuthError('Please enter a valid email address.');
+          return;
+        }
+        const foundUser = registeredAccounts.find(u => u.email.toLowerCase() === authEmail.toLowerCase());
+        if (!foundUser) {
+          setAuthError('Account not found. Please Sign Up first.');
+          return;
+        }
+        if (!foundUser.isActivated) {
+          setAuthError('Account is not activated yet. Please check your registered mail ID and click the activation link.');
+          return;
+        }
+        if (foundUser.password !== authPassword) {
+          setAuthError('Invalid password. Default initial password is "0000".');
+          return;
+        }
+        setIsLoggedIn(true);
+        setCurrentUserEmail(foundUser.email);
+        setAuthSuccess('Welcome back!');
+        setIsAdmin(foundUser.email.toLowerCase().includes('admin'));
+      };
+
+      const handleSignUp = (e) => {
+        e.preventDefault();
+        setAuthError('');
+        setAuthSuccess('');
+        if (!authEmail || !authEmail.includes('@')) {
+          setAuthError('Please enter a valid email address.');
+          return;
+        }
+        if (!authPassword || authPassword.length < 4) {
+          setAuthError('Password must be at least 4 characters long.');
+          return;
+        }
+        if (authPassword !== confirmPassword) {
+          setAuthError('Passwords do not match.');
+          return;
+        }
+        const existing = registeredAccounts.find(u => u.email.toLowerCase() === authEmail.toLowerCase());
+        if (existing) {
+          setAuthError('An account with this email already exists.');
+          return;
+        }
+
+        const activationToken = `ACT-${Math.random().toString(36).substr(2, 9).toUpperCase()}`;
+        const newAccount = {
+          email: authEmail,
+          password: authPassword,
+          id: `UID-${Math.floor(1000 + Math.random() * 9000)}`,
+          isActivated: false,
+          activationToken: activationToken
+        };
+
+        setRegisteredAccounts(prev => [...prev, newAccount]);
+
+        const mailItem = {
+          id: Date.now(),
+          to: authEmail,
+          type: 'activation',
+          subject: 'Activate Your Picture Studio Pro Account',
+          token: activationToken,
+          date: new Date().toLocaleTimeString()
+        };
+        setSimulatedMailInbox(prev => [mailItem, ...prev]);
+        setAuthMode('pending_activation');
+        setAuthSuccess(`Verification activation link sent to ${authEmail}! Click the link in the simulated inbox below.`);
+      };
+
+      const handleActivateAccountWithLink = (token) => {
+        setAuthError('');
+        const userAcc = registeredAccounts.find(u => u.activationToken === token);
+        if (!userAcc) {
+          setAuthError('Invalid or expired activation link.');
+          return;
+        }
+        setRegisteredAccounts(prev => prev.map(u => u.email === userAcc.email ? { ...u, isActivated: true, activationToken: null } : u));
+        setAuthSuccess('Account activated successfully! You can now log in.');
+        setAuthMode('login');
+      };
+
+      const handleRequestPasswordReset = (e) => {
+        e.preventDefault();
+        setAuthError('');
+        setAuthSuccess('');
+        const userAcc = registeredAccounts.find(u => u.email.toLowerCase() === authEmail.toLowerCase());
+        if (!userAcc) {
+          setAuthError('Email address not registered in system.');
+          return;
+        }
+        const resetToken = `RST-${Math.random().toString(36).substr(2, 9).toUpperCase()}`;
+        setRegisteredAccounts(prev => prev.map(u => u.email.toLowerCase() === authEmail.toLowerCase() ? { ...u, resetToken } : u));
+
+        const mailItem = {
+          id: Date.now(),
+          to: authEmail,
+          type: 'reset',
+          subject: 'Password Reset Request - Picture Studio Pro',
+          token: resetToken,
+          date: new Date().toLocaleTimeString()
+        };
+        setSimulatedMailInbox(prev => [mailItem, ...prev]);
+        setAuthSuccess(`Password reset link sent to ${authEmail}. Click the reset link in the simulated inbox below.`);
+      };
+
+      const handleConfirmPasswordReset = (e) => {
+        e.preventDefault();
+        setAuthError('');
+        setAuthSuccess('');
+        const userAcc = registeredAccounts.find(u => u.resetToken === resetTokenInput);
+        if (!userAcc) {
+          setAuthError('Invalid or expired reset token.');
+          return;
+        }
+        if (!newResetPassword || newResetPassword.length < 4) {
+          setAuthError('New password must be at least 4 characters.');
+          return;
+        }
+        setRegisteredAccounts(prev => prev.map(u => u.resetToken === resetTokenInput ? { ...u, password: newResetPassword, resetToken: null } : u));
+        setAuthSuccess('Password changed successfully! Please log in with your new password.');
+        setAuthMode('login');
+        setResetTokenInput('');
+        setNewResetPassword('');
+      };
+
+      const handleLogout = () => {
+        setIsLoggedIn(false);
+        setCurrentUserEmail('');
+        setIsAdmin(false);
+        setActiveTab('workbench');
+      };
+
+      const handleChangePassword = (e) => {
+        e.preventDefault();
+        setPassChangeStatus({ type: '', msg: '' });
+        const userAccount = registeredAccounts.find(u => u.email === currentUserEmail);
+        if (userAccount && oldPassInput !== userAccount.password) {
+          setPassChangeStatus({ type: 'error', msg: 'Current password does not match.' });
+          return;
+        }
+        if (!newPassInput || newPassInput.length < 4) {
+          setPassChangeStatus({ type: 'error', msg: 'New password must be at least 4 characters.' });
+          return;
+        }
+        setRegisteredAccounts(prev => prev.map(u => u.email === currentUserEmail ? { ...u, password: newPassInput } : u));
+        setOldPassInput('');
+        setNewPassInput('');
+        setPassChangeStatus({ type: 'success', msg: 'Password updated successfully!' });
+      };
+
+      const handleBulkUpload = (e) => {
+        const files = Array.from(e.target.files || []);
+        if (!files.length) return;
+        const remainingSlots = 50 - images.length;
+        if (remainingSlots <= 0) {
+          setAppNotice('Maximum limit of 50 pictures reached! Delete existing pictures from Library to add more.');
+          return;
+        }
+        const filesToProcess = files.slice(0, remainingSlots);
+        const newImageObjs = filesToProcess.map((file, idx) => ({
+          id: `img-${Date.now()}-${idx}-${Math.random().toString(36).substr(2, 4)}`,
+          url: URL.createObjectURL(file),
+          name: file.name,
+          selected: true,
+          brightness: 100, contrast: 100, saturation: 100, sepia: 0, hueRotate: 0, blur: 0,
+          rotation: 0, flipH: false, flipV: false,
+          isAutoEnhanced: false,
+          fitMode: 'cover', zoom: 1, panX: 0, panY: 0,
+          cartoonFx: 'none',
+          frameShape: 'rectangle'
+        }));
+        const updatedImages = [...images, ...newImageObjs];
+        setImages(updatedImages);
+        setSelectedImageIds(updatedImages.filter(img => img.selected).map(img => img.id));
+        if (!editingImageId && newImageObjs.length > 0) {
+          setEditingImageId(newImageObjs[0].id);
+        }
+        saveStateToHistory(updatedImages, placedElements);
+        e.target.value = '';
+      };
+
+      const handleCustomBgUpload = (e) => {
+        const file = e.target.files?.[0];
+        if (file) {
+          const url = URL.createObjectURL(file);
+          setCustomBgImage(url);
+          setBgColor('custom');
+        }
+      };
+
+      const toggleSelectImage = (id) => {
+        const updated = images.map(img => img.id === id ? { ...img, selected: !img.selected } : img);
+        setImages(updated);
+        saveStateToHistory(updated, placedElements);
+      };
+
+      useEffect(() => {
+        setSelectedImageIds(images.filter(img => img.selected).map(img => img.id));
+      }, [images]);
+
+      const selectAllImages = (selectVal) => {
+        const updated = images.map(img => ({ ...img, selected: selectVal }));
+        setImages(updated);
+        saveStateToHistory(updated, placedElements);
+      };
+
+      const deleteImage = (id) => {
+        const updated = images.filter(img => img.id !== id);
+        setImages(updated);
+        if (editingImageId === id) setEditingImageId(null);
+        saveStateToHistory(updated, placedElements);
+      };
+
+      const currentEditingImg = images.find(img => img.id === editingImageId);
+
+      const updateEditingProps = (prop, value) => {
+        if (!editingImageId) return;
+        const updated = images.map(img => img.id === editingImageId ? { ...img, [prop]: value } : img);
+        setImages(updated);
+        saveStateToHistory(updated, placedElements);
+      };
+
+      const toggleAutoEnhance = (targetId = editingImageId) => {
+        if (!targetId) return;
+        const updated = images.map(img => {
+          if (img.id === targetId) {
+            if (img.isAutoEnhanced) {
+              return { ...img, isAutoEnhanced: false, brightness: 100, contrast: 100, saturation: 100, sepia: 0 };
+            } else {
+              return { ...img, isAutoEnhanced: true, brightness: 110, contrast: 118, saturation: 125, sepia: 5 };
+            }
+          }
+          return img;
+        });
+        setImages(updated);
+        saveStateToHistory(updated, placedElements);
+      };
+
+      const applyAutoEnhanceToAll = () => {
+        const updated = images.map(img => ({
+          ...img, isAutoEnhanced: true, brightness: 110, contrast: 118, saturation: 125, sepia: 5
+        }));
+        setImages(updated);
+        saveStateToHistory(updated, placedElements);
+      };
+
+      const applyCartoonFxToAll = (fxType) => {
+        const updated = images.map(img => ({ ...img, cartoonFx: fxType }));
+        setImages(updated);
+        saveStateToHistory(updated, placedElements);
+      };
+
+      const handleMouseDownFrame = (e, imgId) => {
+        e.stopPropagation();
+        setEditingImageId(imgId);
+        setIsDraggingFrame(true);
+        const clientX = e.clientX !== undefined ? e.clientX : (e.touches && e.touches[0] ? e.touches[0].clientX : 0);
+        const clientY = e.clientY !== undefined ? e.clientY : (e.touches && e.touches[0] ? e.touches[0].clientY : 0);
+        dragStartRef.current = { x: clientX, y: clientY };
+        const targetImg = images.find(i => i.id === imgId);
+        initialPanRef.current = { panX: targetImg?.panX || 0, panY: targetImg?.panY || 0 };
+      };
+
+      const handleMouseMoveFrame = (e) => {
+        if (!isDraggingFrame || !editingImageId) return;
+        const clientX = e.clientX !== undefined ? e.clientX : (e.touches && e.touches[0] ? e.touches[0].clientX : 0);
+        const clientY = e.clientY !== undefined ? e.clientY : (e.touches && e.touches[0] ? e.touches[0].clientY : 0);
+        const deltaX = clientX - dragStartRef.current.x;
+        const deltaY = clientY - dragStartRef.current.y;
+        const sensitivity = 0.35;
+        const newPanX = Math.min(100, Math.max(-100, initialPanRef.current.panX + (deltaX * sensitivity)));
+        const newPanY = Math.min(100, Math.max(-100, initialPanRef.current.panY + (deltaY * sensitivity)));
+        const updated = images.map(img => img.id === editingImageId ? { ...img, panX: Math.round(newPanX), panY: Math.round(newPanY) } : img);
+        setImages(updated);
+      };
+
+      const handleMouseUpFrame = () => {
+        if (isDraggingFrame) {
+          setIsDraggingFrame(false);
+          saveStateToHistory(images, placedElements);
+        }
+      };
+
+      const addSticker = (emoji) => {
+        const targetImgId = editingImageId || (images.find(i => i.selected)?.id);
+        const newEl = {
+          id: `sticker-${Date.now()}`,
+          type: 'sticker',
+          content: emoji,
+          targetImageId: targetImgId,
+          x: 40 + Math.random() * 20,
+          y: 40 + Math.random() * 20,
+          size: 48,
+          rotation: 0
+        };
+        const updatedEls = [...placedElements, newEl];
+        setPlacedElements(updatedEls);
+        setSelectedElementId(newEl.id);
+        saveStateToHistory(images, updatedEls);
+      };
+
+      const convertSelectedToPencil = () => {
+        if (!editingImageId) {
+          setAppNotice('Please click on a picture in the canvas first to convert it to a pencil drawing.');
+          return;
+        }
+        updateEditingProps('cartoonFx', 'pencil');
+      };
+
+      const addCustomText = () => {
+        if (!textInput.trim()) return;
+        const newEl = {
+          id: `text-${Date.now()}`,
+          type: 'text',
+          content: textInput,
+          color: textColor,
+          bg: textBg,
+          x: 30 + Math.random() * 20,
+          y: 30 + Math.random() * 20,
+          size: textSize,
+          rotation: 0
+        };
+        const updatedEls = [...placedElements, newEl];
+        setPlacedElements(updatedEls);
+        setSelectedElementId(newEl.id);
+        setTextInput('');
+        saveStateToHistory(images, updatedEls);
+      };
+
+      const removeSelectedElement = (id) => {
+        const updatedEls = placedElements.filter(el => el.id !== id);
+        setPlacedElements(updatedEls);
+        if (selectedElementId === id) setSelectedElementId(null);
+        saveStateToHistory(images, updatedEls);
+      };
+
+      const handleElementMouseDown = (e, elId) => {
+        e.stopPropagation();
+        setSelectedElementId(elId);
+        setIsDraggingElement(true);
+        const clientX = e.clientX !== undefined ? e.clientX : (e.touches && e.touches[0] ? e.touches[0].clientX : 0);
+        const clientY = e.clientY !== undefined ? e.clientY : (e.touches && e.touches[0] ? e.touches[0].clientY : 0);
+        const target = placedElements.find(el => el.id === elId);
+        if (target) {
+          elementDragStartRef.current = { x: clientX, y: clientY, initialX: target.x, initialY: target.y };
+        }
+      };
+
+      const handleElementMouseMove = (e) => {
+        if (!isDraggingElement || !selectedElementId) return;
+        const clientX = e.clientX !== undefined ? e.clientX : (e.touches && e.touches[0] ? e.touches[0].clientX : 0);
+        const clientY = e.clientY !== undefined ? e.clientY : (e.touches && e.touches[0] ? e.touches[0].clientY : 0);
+        const deltaX = clientX - elementDragStartRef.current.x;
+        const deltaY = clientY - elementDragStartRef.current.y;
+
+        setPlacedElements(prev => prev.map(el => {
+          if (el.id === selectedElementId) {
+            return {
+              ...el,
+              x: Math.min(95, Math.max(0, elementDragStartRef.current.initialX + (deltaX / 5))),
+              y: Math.min(95, Math.max(0, elementDragStartRef.current.initialY + (deltaY / 5)))
+            };
+          }
+          return el;
+        }));
+      };
+
+      const handleElementMouseUp = () => {
+        if (isDraggingElement) {
+          setIsDraggingElement(false);
+          saveStateToHistory(images, placedElements);
+        }
+      };
+
+      const applyCartoonPixelFilters = (ctx, width, height, fxType) => {
+        if (fxType === 'none') return;
+        try {
+          const imgData = ctx.getImageData(0, 0, width, height);
+          const data = imgData.data;
+          const w = width;
+          const h = height;
+
+          if (fxType === 'pencil' || fxType === 'ink') {
+            const gray = new Uint8ClampedArray(w * h);
+            for (let i = 0; i < data.length; i += 4) {
+              gray[i / 4] = 0.299 * data[i] + 0.587 * data[i + 1] + 0.114 * data[i + 2];
+            }
+            for (let y = 1; y < h - 1; y++) {
+              for (let x = 1; x < w - 1; x++) {
+                const idx = y * w + x;
+                const gx = -1 * gray[(y - 1) * w + (x - 1)] + 1 * gray[(y - 1) * w + (x + 1)] +
+                           -2 * gray[y * w + (x - 1)]       + 2 * gray[y * w + (x + 1)] +
+                           -1 * gray[(y + 1) * w + (x - 1)] + 1 * gray[(y + 1) * w + (x + 1)];
+                const gy = -1 * gray[(y - 1) * w + (x - 1)] - 2 * gray[(y - 1) * w + x] - 1 * gray[(y - 1) * w + (x + 1)] +
+                            1 * gray[(y + 1) * w + (x - 1)] + 2 * gray[(y + 1) * w + x] + 1 * gray[(y + 1) * w + (x + 1)];
+                const mag = 255 - Math.min(255, Math.sqrt(gx * gx + gy * gy) * (fxType === 'ink' ? 2 : 1.2));
+                const i = idx * 4;
+                data[i] = mag;
+                data[i + 1] = mag;
+                data[i + 2] = mag;
+              }
+            }
+          } else if (fxType === 'cartoon' || fxType === 'comic') {
+            const gray = new Uint8ClampedArray(w * h);
+            for (let i = 0; i < data.length; i += 4) {
+              gray[i / 4] = 0.299 * data[i] + 0.587 * data[i + 1] + 0.114 * data[i + 2];
+            }
+            const edges = new Uint8ClampedArray(w * h);
+            for (let y = 1; y < h - 1; y++) {
+              for (let x = 1; x < w - 1; x++) {
+                const idx = y * w + x;
+                const gx = -1 * gray[(y - 1) * w + (x - 1)] + 1 * gray[(y - 1) * w + (x + 1)] +
+                           -2 * gray[y * w + (x - 1)]       + 2 * gray[y * w + (x + 1)] +
+                           -1 * gray[(y + 1) * w + (x - 1)] + 1 * gray[(y + 1) * w + (x + 1)];
+                const gy = -1 * gray[(y - 1) * w + (x - 1)] - 2 * gray[(y - 1) * w + x] - 1 * gray[(y - 1) * w + (x + 1)] +
+                            1 * gray[(y + 1) * w + (x - 1)] + 2 * gray[(y + 1) * w + x] + 1 * gray[(y + 1) * w + (x + 1)];
+                edges[idx] = Math.sqrt(gx * gx + gy * gy) > 60 ? 255 : 0;
+              }
+            }
+            const step = 255 / (fxType === 'comic' ? 3 : 5);
+            for (let y = 0; y < h; y++) {
+              for (let x = 0; x < w; x++) {
+                const i = (y * w + x) * 4;
+                if (edges[y * w + x] > 0) {
+                  data[i] = 20;
+                  data[i + 1] = 20;
+                  data[i + 2] = 20;
+                } else {
+                  data[i]     = Math.round(data[i] / step) * step;
+                  data[i + 1] = Math.round(data[i + 1] / step) * step;
+                  data[i + 2] = Math.round(data[i + 2] / step) * step;
+                }
+              }
+            }
+          }
+          ctx.putImageData(imgData, 0, 0);
+        } catch (err) {
+          console.error('Pixel filter error:', err);
+        }
+      };
+
+      const renderCanvasToDataURL = async () => {
+        const activeImages = images.filter(img => img.selected);
+        if (activeImages.length === 0) return null;
+
+        const canvas = document.createElement('canvas');
+        const ctx = canvas.getContext('2d');
+        const width = currentLayoutDim.w;
+        const height = currentLayoutDim.h;
+        canvas.width = width;
+        canvas.height = height;
+
+        const activeCard = GREETING_CARD_TEMPLATES.find(c => c.id === cardPreset);
+        const bgToUse = (activeCard && activeCard.bg) ? activeCard.bg : bgColor;
+
+        if (customBgImage && bgToUse === 'custom') {
+          const bgImg = await loadImage(customBgImage);
+          ctx.drawImage(bgImg, 0, 0, width, height);
+        } else if (bgToUse.startsWith('linear-gradient')) {
+          const grad = ctx.createLinearGradient(0, 0, width, height);
+          grad.addColorStop(0, '#0284c7');
+          grad.addColorStop(1, '#38bdf8');
+          ctx.fillStyle = grad;
+          ctx.fillRect(0, 0, width, height);
+        } else if (bgToUse !== 'transparent') {
+          ctx.fillStyle = bgToUse;
+          ctx.fillRect(0, 0, width, height);
+        }
+
+        const count = activeImages.length;
+        const cols = layoutMode === 'auto' ? Math.ceil(Math.sqrt(count)) : columns;
+        const rows = Math.ceil(count / cols);
+        const availableW = Math.max(100, width - (padding * 2) - ((cols - 1) * gap));
+        const availableH = Math.max(100, height - (padding * 2) - ((rows - 1) * gap) - (activeCard && activeCard.id !== 'none' ? 140 : 0));
+        const cellW = availableW / cols;
+        const cellH = availableH / rows;
+        const startY = padding + (activeCard && activeCard.id !== 'none' ? 100 : 0);
+
+        for (let i = 0; i < count; i++) {
+          const imgData = activeImages[i];
+          const r = Math.floor(i / cols);
+          const c = i % cols;
+          const x = padding + c * (cellW + gap);
+          const y = startY + r * (cellH + gap);
+
+          const loadedImg = await loadImage(imgData.url);
+          const cellCanvas = document.createElement('canvas');
+          cellCanvas.width = Math.max(1, Math.floor(cellW));
+          cellCanvas.height = Math.max(1, Math.floor(cellH));
+          const cellCtx = cellCanvas.getContext('2d');
+
+          cellCtx.save();
+          cellCtx.filter = `brightness(${imgData.brightness}%) contrast(${imgData.contrast}%) saturate(${imgData.saturation}%) sepia(${imgData.sepia}%) hue-rotate(${imgData.hueRotate}deg) blur(${imgData.blur}px)`;
+
+          const centerX = (cellCanvas.width / 2) + ((imgData.panX / 100) * cellCanvas.width);
+          const centerY = (cellCanvas.height / 2) + ((imgData.panY / 100) * cellCanvas.height);
+          cellCtx.translate(centerX, centerY);
+
+          if (imgData.rotation) cellCtx.rotate((imgData.rotation * Math.PI) / 180);
+          cellCtx.scale((imgData.flipH ? -1 : 1) * (imgData.zoom || 1), (imgData.flipV ? -1 : 1) * (imgData.zoom || 1));
+
+          const imgRatio = loadedImg.width / loadedImg.height;
+          const cellRatio = cellCanvas.width / cellCanvas.height;
+          let drawW, drawH;
+
+          if (imgData.fitMode === 'contain') {
+            if (imgRatio > cellRatio) {
+              drawW = cellCanvas.width;
+              drawH = cellCanvas.width / imgRatio;
+            } else {
+              drawH = cellCanvas.height;
+              drawW = cellCanvas.height * imgRatio;
+            }
+          } else {
+            if (imgRatio > cellRatio) {
+              drawH = cellCanvas.height;
+              drawW = cellCanvas.height * imgRatio;
+            } else {
+              drawW = cellCanvas.width;
+              drawH = cellCanvas.width / imgRatio;
+            }
+          }
+
+          cellCtx.drawImage(loadedImg, -drawW / 2, -drawH / 2, drawW, drawH);
+          cellCtx.restore();
+
+          if (imgData.cartoonFx && imgData.cartoonFx !== 'none') {
+            applyCartoonPixelFilters(cellCtx, cellCanvas.width, cellCanvas.height, imgData.cartoonFx);
+          }
+
+          ctx.save();
+          if (borderRadius > 0) {
+            ctx.beginPath();
+            ctx.moveTo(x + borderRadius, y);
+            ctx.lineTo(x + cellW - borderRadius, y);
+            ctx.quadraticCurveTo(x + cellW, y, x + cellW, y + borderRadius);
+            ctx.lineTo(x + cellW, y + cellH - borderRadius);
+            ctx.quadraticCurveTo(x + cellW, y + cellH, x + cellW - borderRadius, y + cellH);
+            ctx.lineTo(x + borderRadius, y + cellH);
+            ctx.quadraticCurveTo(x, y + cellH, x, y + cellH - borderRadius);
+            ctx.lineTo(x, y + borderRadius);
+            ctx.quadraticCurveTo(x, y, x + borderRadius, y);
+            ctx.closePath();
+            ctx.clip();
+          }
+          ctx.drawImage(cellCanvas, x, y, cellW, cellH);
+          ctx.restore();
+        }
+
+        if (activeCard && activeCard.id !== 'none') {
+          ctx.fillStyle = '#ffffff';
+          ctx.font = 'bold 48px sans-serif';
+          ctx.textAlign = 'center';
+          ctx.fillText(cardTitleText || activeCard.title, width / 2, 65);
+          ctx.font = '24px sans-serif';
+          ctx.fillText(cardSubText || activeCard.sub, width / 2, 100);
+        }
+
+        placedElements.forEach(el => {
+          const posX = (el.x / 100) * width;
+          const posY = (el.y / 100) * height;
+          if (el.type === 'sticker') {
+            ctx.font = `${el.size * 1.8}px sans-serif`;
+            ctx.fillText(el.content, posX, posY);
+          } else if (el.type === 'text') {
+            ctx.font = `bold ${el.size * 1.2}px sans-serif`;
+            ctx.fillStyle = el.color || '#ffffff';
+            ctx.fillText(el.content, posX, posY);
+          }
+        });
+
+        const mimeType = exportFormat === 'jpeg' ? 'image/jpeg' : exportFormat === 'webp' ? 'image/webp' : 'image/png';
+        return canvas.toDataURL(mimeType, 0.95);
+      };
+
+      const loadImage = (src) => {
+        return new Promise((resolve, reject) => {
+          const img = new Image();
+          img.crossOrigin = 'anonymous';
+          img.onload = () => resolve(img);
+          img.onerror = reject;
+          img.src = src;
+        });
+      };
+
+      const handleDownloadLayout = async () => {
+        try {
+          const dataUrl = await renderCanvasToDataURL();
+          if (!dataUrl) return;
+          const link = document.createElement('a');
+          link.download = `studio_print_${selectedSizeId}_${orientation}_${Date.now()}.${exportFormat}`;
+          link.href = dataUrl;
+          link.click();
+        } catch (err) {
+          console.error('Export failed:', err);
+          setAppNotice('Unable to export canvas image due to browser image restrictions.');
+        }
+      };
+
+      // --- AUTHENTICATION SCREEN WITH MAIL ACTIVATION & PASSWORD RESET LINKS ---
+      if (!isLoggedIn) {
+        return (
+          <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col justify-center items-center p-4 relative overflow-hidden">
+            <div className="absolute top-1/4 left-1/4 w-96 h-96 bg-indigo-600/10 rounded-full blur-3xl pointer-events-none" />
+            <div className="absolute bottom-1/4 right-1/4 w-96 h-96 bg-purple-600/10 rounded-full blur-3xl pointer-events-none" />
+
+            <div className="w-full max-w-md bg-slate-900/90 backdrop-blur-xl border border-slate-800 rounded-2xl p-8 shadow-2xl relative z-10 space-y-6">
+              <div className="flex flex-col items-center mb-2">
+                <div className="w-14 h-14 bg-gradient-to-tr from-indigo-500 via-purple-500 to-pink-500 rounded-2xl flex items-center justify-center shadow-lg mb-3">
+                  <Icon name="sparkles" className="w-8 h-8 text-white" />
+                </div>
+                <h1 className="text-2xl font-bold tracking-tight text-white text-center">AM Picture Studio</h1>
+                <p className="text-xs text-slate-400 mt-1">AM Creation 0.1</p>
+              </div>
+
+              {authMode !== 'pending_activation' && authMode !== 'reset' && (
+                <div className="flex bg-slate-950 p-1 rounded-xl border border-slate-800">
+                  <button
+                    type="button"
+                    onClick={() => { setAuthMode('login'); setAuthError(''); setAuthSuccess(''); }}
+                    className={`flex-1 py-2 text-xs font-semibold rounded-lg transition-all ${
+                      authMode === 'login' ? 'bg-indigo-600 text-white shadow-md' : 'text-slate-400 hover:text-slate-200'
+                    }`}
+                  >
+                    Log In
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => { setAuthMode('signup'); setAuthError(''); setAuthSuccess(''); }}
+                    className={`flex-1 py-2 text-xs font-semibold rounded-lg transition-all ${
+                      authMode === 'signup' ? 'bg-indigo-600 text-white shadow-md' : 'text-slate-400 hover:text-slate-200'
+                    }`}
+                  >
+                    Sign Up
+                  </button>
+                </div>
+              )}
+
+              {appNotice && (
+                <div className="bg-indigo-950/50 border border-indigo-800/50 rounded-xl p-3 text-xs text-indigo-300">
+                  <span className="font-semibold block text-indigo-200 mb-0.5">Announcement</span>
+                  {appNotice}
+                </div>
+              )}
+
+              {authError && (
+                <div className="bg-rose-950/60 border border-rose-800 text-rose-300 px-3 py-2 rounded-lg text-xs">
+                  {authError}
+                </div>
+              )}
+
+              {authSuccess && (
+                <div className="bg-emerald-950/60 border border-emerald-800 text-emerald-300 px-3 py-2 rounded-lg text-xs">
+                  {authSuccess}
+                </div>
+              )}
+
+              {/* 1. LOGIN FORM */}
+              {authMode === 'login' && (
+                <form onSubmit={handleLogin} className="space-y-4">
+                  <div>
+                    <label className="block text-xs font-medium text-slate-300 mb-1">Email / Username</label>
+                    <input
+                      type="email"
+                      required
+                      placeholder="user@example.com"
+                      value={authEmail}
+                      onChange={(e) => setAuthEmail(e.target.value)}
+                      className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-sm text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                    />
+                  </div>
+
+                  <div>
+                    <div className="flex justify-between items-center mb-1">
+                      <label className="block text-xs font-medium text-slate-300">Password</label>
+                      <button
+                        type="button"
+                        onClick={() => { setAuthMode('forgot'); setAuthError(''); setAuthSuccess(''); }}
+                        className="text-xs text-indigo-400 hover:text-indigo-300"
+                      >
+                        Forgot Password?
+                      </button>
+                    </div>
+                    <input
+                      type="password"
+                      required
+                      placeholder="Default initial is 0000"
+                      value={authPassword}
+                      onChange={(e) => setAuthPassword(e.target.value)}
+                      className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-sm text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                    />
+                    <span className="text-[10px] text-slate-500 mt-1 block">Demo account: <code className="text-indigo-400 font-mono">user@example.com</code> / password <code className="text-indigo-400 font-mono">0000</code></span>
+                  </div>
+
+                  <button
+                    type="submit"
+                    className="w-full bg-indigo-600 hover:bg-indigo-500 text-white font-medium py-2.5 rounded-lg text-sm shadow-lg shadow-indigo-600/30 transition-all"
+                  >
+                    Log In to Studio
+                  </button>
+                </form>
+              )}
+
+              {/* 2. SIGN UP FORM */}
+              {authMode === 'signup' && (
+                <form onSubmit={handleSignUp} className="space-y-4">
+                  <div>
+                    <label className="block text-xs font-medium text-slate-300 mb-1">Email Address</label>
+                    <input
+                      type="email"
+                      required
+                      placeholder="new.user@example.com"
+                      value={authEmail}
+                      onChange={(e) => setAuthEmail(e.target.value)}
+                      className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-sm text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-medium text-slate-300 mb-1">Create Password</label>
+                    <input
+                      type="password"
+                      required
+                      placeholder="At least 4 characters"
+                      value={authPassword}
+                      onChange={(e) => setAuthPassword(e.target.value)}
+                      className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-sm text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-medium text-slate-300 mb-1">Confirm Password</label>
+                    <input
+                      type="password"
+                      required
+                      placeholder="Re-enter password"
+                      value={confirmPassword}
+                      onChange={(e) => setConfirmPassword(e.target.value)}
+                      className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-sm text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                    />
+                  </div>
+
+                  <button
+                    type="submit"
+                    className="w-full bg-indigo-600 hover:bg-indigo-500 text-white font-medium py-2.5 rounded-lg text-sm shadow-lg shadow-indigo-600/30 transition-all"
+                  >
+                    Sign Up & Send Activation Link
+                  </button>
+                </form>
+              )}
+
+              {/* 3. PENDING ACTIVATION SCREEN */}
+              {authMode === 'pending_activation' && (
+                <div className="space-y-4 text-center">
+                  <div className="w-12 h-12 bg-amber-500/20 text-amber-400 rounded-full flex items-center justify-center mx-auto">
+                    <Icon name="mail" className="w-6 h-6" />
+                  </div>
+                  <h3 className="text-base font-bold text-white">Check Your Registered Mail ID</h3>
+                  <p className="text-xs text-slate-400">
+                    An activation link has been sent to <strong className="text-white">{authEmail}</strong>. First-time users must activate their account using the link sent to their mail ID before logging in.
+                  </p>
+                  <button
+                    onClick={() => setAuthMode('login')}
+                    className="w-full bg-slate-800 hover:bg-slate-700 text-white py-2 rounded-lg text-xs font-medium"
+                  >
+                    Return to Log In
+                  </button>
+                </div>
+              )}
+
+              {/* 4. FORGOT PASSWORD REQUEST SCREEN */}
+              {authMode === 'forgot' && (
+                <form onSubmit={handleRequestPasswordReset} className="space-y-4">
+                  <h3 className="text-sm font-bold text-white">Reset Your Password</h3>
+                  <p className="text-xs text-slate-400">Enter your registered email address and we will send you a password reset link.</p>
+                  <div>
+                    <label className="block text-xs font-medium text-slate-300 mb-1">Registered Email</label>
+                    <input
+                      type="email"
+                      required
+                      placeholder="your.email@example.com"
+                      value={authEmail}
+                      onChange={(e) => setAuthEmail(e.target.value)}
+                      className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-sm text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                    />
+                  </div>
+                  <div className="flex space-x-2">
+                    <button
+                      type="button"
+                      onClick={() => setAuthMode('login')}
+                      className="flex-1 bg-slate-800 hover:bg-slate-700 text-slate-300 py-2.5 rounded-lg text-xs"
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      type="submit"
+                      className="flex-1 bg-indigo-600 hover:bg-indigo-500 text-white py-2.5 rounded-lg text-xs font-medium"
+                    >
+                      Send Reset Link
+                    </button>
+                  </div>
+                </form>
+              )}
+
+              {/* 5. RESET PASSWORD CONFIRM SCREEN WITH TOKEN */}
+              {authMode === 'reset' && (
+                <form onSubmit={handleConfirmPasswordReset} className="space-y-4">
+                  <h3 className="text-sm font-bold text-white">Change Password with Email Link</h3>
+                  <p className="text-xs text-slate-400">Paste or click the reset token from your email inbox and enter your new password.</p>
+                  <div>
+                    <label className="block text-xs font-medium text-slate-300 mb-1">Reset Token</label>
+                    <input
+                      type="text"
+                      required
+                      placeholder="e.g. RST-XXXXXXXXX"
+                      value={resetTokenInput}
+                      onChange={(e) => setResetTokenInput(e.target.value)}
+                      className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-sm text-white font-mono"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-slate-300 mb-1">New Password</label>
+                    <input
+                      type="password"
+                      required
+                      placeholder="At least 4 characters"
+                      value={newResetPassword}
+                      onChange={(e) => setNewResetPassword(e.target.value)}
+                      className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-sm text-white"
+                    />
+                  </div>
+                  <div className="flex space-x-2">
+                    <button
+                      type="button"
+                      onClick={() => setAuthMode('login')}
+                      className="flex-1 bg-slate-800 hover:bg-slate-700 text-slate-300 py-2.5 rounded-lg text-xs"
+                    >
+                      Back
+                    </button>
+                    <button
+                      type="submit"
+                      className="flex-1 bg-indigo-600 hover:bg-indigo-500 text-white py-2.5 rounded-lg text-xs font-medium"
+                    >
+                      Update Password
+                    </button>
+                  </div>
+                </form>
+              )}
+
+              {/* SIMULATED INBOX / MAIL CLIENT NOTIFICATION BOX */}
+              <div className="mt-6 pt-4 border-t border-slate-800 bg-slate-950/80 p-3 rounded-xl border border-slate-800/80">
+                <div className="flex items-center justify-between mb-2">
+                  <span className="text-[11px] font-bold text-indigo-400 flex items-center">
+                    <Icon name="mail" className="w-3.5 h-3.5 mr-1" />
+                    Simulated User Mail Inbox ({simulatedMailInbox.length})
+                  </span>
+                  <span className="text-[9px] text-slate-500">Click links below to test mail actions</span>
+                </div>
+
+                {simulatedMailInbox.length === 0 ? (
+                  <p className="text-[10px] text-slate-500 italic">No mail messages yet. Sign up or request password reset to receive simulated mail links.</p>
+                ) : (
+                  <div className="space-y-2 max-h-36 overflow-y-auto pr-1">
+                    {simulatedMailInbox.map(mail => (
+                      <div key={mail.id} className="p-2 bg-slate-900 border border-slate-800 rounded-lg text-xs space-y-1">
+                        <div className="flex justify-between text-[10px] text-slate-400">
+                          <span>To: <strong className="text-slate-200">{mail.to}</strong></span>
+                          <span>{mail.date}</span>
+                        </div>
+                        <div className="font-semibold text-slate-200 text-[11px]">{mail.subject}</div>
+                        {mail.type === 'activation' ? (
+                          <button
+                            type="button"
+                            onClick={() => handleActivateAccountWithLink(mail.token)}
+                            className="mt-1 w-full bg-emerald-600 hover:bg-emerald-500 text-white py-1 rounded text-[10px] font-bold flex items-center justify-center space-x-1"
+                          >
+                            <Icon name="check-circle" className="w-3 h-3" />
+                            <span>Click Mail Link to Activate Account [{mail.token}]</span>
+                          </button>
+                        ) : (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setResetTokenInput(mail.token);
+                              setAuthMode('reset');
+                            }}
+                            className="mt-1 w-full bg-indigo-600 hover:bg-indigo-500 text-white py-1 rounded text-[10px] font-bold flex items-center justify-center space-x-1"
+                          >
+                            <Icon name="key" className="w-3 h-3" />
+                            <span>Click Mail Link to Reset Password [{mail.token}]</span>
+                          </button>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+            </div>
+          </div>
+        );
+      }
+
+      const activeCardPresetObj = GREETING_CARD_TEMPLATES.find(c => c.id === cardPreset);
+
+      return (
+        <div
+          onMouseMove={(e) => { handleMouseMoveFrame(e); handleElementMouseMove(e); }}
+          onTouchMove={(e) => { handleMouseMoveFrame(e); handleElementMouseMove(e); }}
+          onMouseUp={() => { handleMouseUpFrame(); handleElementMouseUp(); }}
+          onTouchEnd={() => { handleMouseUpFrame(); handleElementMouseUp(); }}
+          className="min-h-screen flex flex-col bg-slate-950 text-slate-100 relative"
+        >
+          {/* Main Top Header */}
+          <header className="bg-slate-900/90 border-b border-slate-800 sticky top-0 z-40 backdrop-blur-md">
+            <div className="max-w-7xl mx-auto px-4 py-2.5 flex flex-wrap items-center justify-between gap-2">
+              <div className="flex items-center space-x-3">
+                <div className="w-10 h-10 bg-gradient-to-tr from-indigo-500 via-purple-500 to-pink-500 rounded-2xl flex items-center justify-center shadow-md">
+                  <Icon name="sparkles" className="w-5 h-5 text-white" />
+                </div>
+                <div>
+                  <span className="font-bold text-base text-white block leading-tight">Picture Studio Pro</span>
+                  <span className="text-[10px] text-slate-400 font-mono">Photoshop Suite & Universal Sizes</span>
+                </div>
+              </div>
+
+              {/* Navigation Tabs */}
+              <nav className="flex space-x-1 sm:space-x-2 bg-slate-950/60 p-1 rounded-xl border border-slate-800">
+                <button
+                  onClick={() => setActiveTab('workbench')}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${
+                    activeTab === 'workbench' ? 'bg-indigo-600 text-white shadow-md' : 'text-slate-400 hover:text-slate-200'
+                  }`}
+                >
+                  Workbench
+                </button>
+                <button
+                  onClick={() => setActiveTab('gallery')}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${
+                    activeTab === 'gallery' ? 'bg-indigo-600 text-white shadow-md' : 'text-slate-400 hover:text-slate-200'
+                  }`}
+                >
+                  Library ({images.length}/50)
+                </button>
+                <button
+                  onClick={() => setActiveTab('settings')}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${
+                    activeTab === 'settings' ? 'bg-indigo-600 text-white shadow-md' : 'text-slate-400 hover:text-slate-200'
+                  }`}
+                >
+                  Settings
+                </button>
+
+                {isAdmin && (
+                  <button
+                    onClick={() => setActiveTab('admin')}
+                    className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${
+                      activeTab === 'admin' ? 'bg-amber-600 text-white shadow-md' : 'text-amber-400 hover:bg-slate-900'
+                    }`}
+                  >
+                    Admin Panel
+                  </button>
+                )}
+              </nav>
+
+              <div className="flex items-center space-x-2 sm:space-x-3">
+                <div className="flex items-center bg-slate-950 border border-slate-800 rounded-lg p-0.5">
+                  <button
+                    onClick={handleUndo}
+                    disabled={historyStep <= 0}
+                    className="p-1.5 text-slate-400 hover:text-white disabled:opacity-30 disabled:hover:text-slate-400"
+                    title="Undo Action"
+                  >
+                    <Icon name="undo-2" className="w-3.5 h-3.5" />
+                  </button>
+                  <button
+                    onClick={handleRedo}
+                    disabled={historyStep >= history.length - 1}
+                    className="p-1.5 text-slate-400 hover:text-white disabled:opacity-30 disabled:hover:text-slate-400"
+                    title="Redo Action"
+                  >
+                    <Icon name="redo-2" className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+
+                <button
+                  onClick={() => setShowPsModal(true)}
+                  className="px-3 py-1.5 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white rounded-lg text-xs font-bold shadow-lg shadow-blue-600/30 flex items-center space-x-1.5 transition-all"
+                >
+                  <Icon name="layers" className="w-3.5 h-3.5" />
+                  <span>Photoshop Suite</span>
+                </button>
+
+                <span className="text-xs text-slate-300 font-medium hidden md:inline">{currentUserEmail}</span>
+                <button
+                  onClick={handleLogout}
+                  className="px-3 py-1.5 bg-rose-950/60 hover:bg-rose-900 text-rose-300 rounded-lg text-xs font-medium border border-rose-800"
+                >
+                  Sign Out
+                </button>
+              </div>
+            </div>
+          </header>
+
+          {appNotice && (
+            <div className="bg-indigo-950/40 border-b border-indigo-900/40 px-4 py-1 text-center text-xs text-indigo-300">
+              {appNotice}
+            </div>
+          )}
+
+          {/* MAIN WORKSPACE CONTENT */}
+          <main className="flex-1 max-w-7xl w-full mx-auto p-3 sm:p-4 flex flex-col space-y-4">
+
+            {activeTab === 'workbench' && (
+              <div className="flex flex-col space-y-4 flex-1">
+
+                {/* TOP PICTURE CANVAS VIEW */}
+                <div className="w-full bg-slate-900/60 border border-slate-800 rounded-2xl p-4 sm:p-6 flex flex-col justify-center items-center relative overflow-hidden min-h-[440px] sm:min-h-[500px]">
+
+                  <div className="w-full flex flex-wrap justify-between items-center gap-2 mb-3 px-1">
+                    <div className="flex items-center space-x-2">
+                      <span className="text-xs font-semibold text-slate-300">Picture Canvas View</span>
+                      <span className="text-[10px] bg-indigo-950 border border-indigo-800 px-2 py-0.5 rounded text-indigo-300 font-mono">
+                        Dim: {currentLayoutDim.w} x {currentLayoutDim.h} px ({orientation})
+                      </span>
+                    </div>
+
+                    <div className="flex items-center space-x-2">
+                      <div className="flex items-center bg-slate-950 border border-slate-800 rounded-lg p-0.5">
+                        <button
+                          onClick={() => setCanvasZoom(z => Math.max(0.4, Number((z - 0.1).toFixed(2))))}
+                          className="px-2 py-1 text-slate-400 hover:text-white"
+                          title="Zoom Out Canvas"
+                        >
+                          <Icon name="zoom-out" className="w-3.5 h-3.5" />
+                        </button>
+                        <span className="text-[10px] px-1 font-mono text-indigo-400">{Math.round(canvasZoom * 100)}%</span>
+                        <button
+                          onClick={() => setCanvasZoom(z => Math.min(2, Number((z + 0.1).toFixed(2))))}
+                          className="px-2 py-1 text-slate-400 hover:text-white"
+                          title="Zoom In Canvas"
+                        >
+                          <Icon name="zoom-in" className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+
+                      <input
+                        type="file"
+                        ref={fileInputRef}
+                        onChange={handleBulkUpload}
+                        multiple
+                        accept="image/*"
+                        className="hidden"
+                      />
+                      <button
+                        onClick={() => fileInputRef.current?.click()}
+                        disabled={images.length >= 50}
+                        className="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-500 disabled:bg-slate-800 text-white rounded-lg text-xs font-medium shadow transition-all flex items-center space-x-1"
+                      >
+                        <Icon name="upload-cloud" className="w-3.5 h-3.5 mr-1" />
+                        <span>Upload Photos</span>
+                      </button>
+                    </div>
+                  </div>
+
+                  {selectedImageIds.length === 0 ? (
+                    <div className="text-center p-8 max-w-sm border-2 border-dashed border-slate-800 rounded-xl my-auto">
+                      <Icon name="image" className="w-10 h-10 text-slate-600 mx-auto mb-2" />
+                      <h4 className="text-sm font-semibold text-slate-300">No Pictures Selected</h4>
+                      <p className="text-xs text-slate-500 mt-1">
+                        Upload up to 50 pictures or select photos from the Library to start composing.
+                      </p>
+                    </div>
+                  ) : (
+                    <div
+                      style={{ transform: `scale(${canvasZoom})`, transition: 'transform 0.15s ease-out' }}
+                      className="w-full flex justify-center items-center my-auto"
+                    >
+                      <div
+                        style={{
+                          aspectRatio: currentLayoutDim.aspectRatioStr.replace('/', ':'),
+                          background: (activeCardPresetObj && activeCardPresetObj.bg)
+                            ? activeCardPresetObj.bg
+                            : (customBgImage && bgColor === 'custom' ? `url(${customBgImage}) center/cover` : bgColor),
+                          padding: `${padding}px`,
+                          width: '100%',
+                          maxWidth: orientation === 'landscape' ? '880px' : '620px'
+                        }}
+                        className={`rounded-xl shadow-2xl relative flex flex-col overflow-hidden border ${activeCardPresetObj ? activeCardPresetObj.border : 'border-slate-800'}`}
+                      >
+                        {activeCardPresetObj && activeCardPresetObj.id !== 'none' && (
+                          <div className="text-center py-3 px-4 mb-2 bg-black/20 backdrop-blur-sm rounded-lg border border-white/10">
+                            <h2 className="text-lg sm:text-2xl font-bold text-white tracking-wide drop-shadow-md">
+                              {cardTitleText || activeCardPresetObj.title}
+                            </h2>
+                            <p className="text-xs sm:text-sm text-slate-100 opacity-90 drop-shadow">
+                              {cardSubText || activeCardPresetObj.sub}
+                            </p>
+                          </div>
+                        )}
+
+                        <div
+                          style={{
+                            display: 'grid',
+                            gap: `${gap}px`,
+                            gridTemplateColumns: layoutMode === 'auto'
+                              ? `repeat(${Math.ceil(Math.sqrt(selectedImageIds.length))}, minmax(0, 1fr))`
+                              : `repeat(${columns}, minmax(0, 1fr))`,
+                            width: '100%',
+                            flex: 1
+                          }}
+                        >
+                          {images.filter(img => img.selected).map(img => {
+                            const isEditingThis = editingImageId === img.id;
+                            const shapePreset = FRAME_SHAPE_PRESETS.find(s => s.id === (img.frameShape || 'rectangle')) || FRAME_SHAPE_PRESETS[0];
+
+                            return (
+                              <div
+                                key={img.id}
+                                onMouseDown={(e) => handleMouseDownFrame(e, img.id)}
+                                onTouchStart={(e) => handleMouseDownFrame(e, img.id)}
+                                style={{ borderRadius: img.frameShape === 'circle' ? '50%' : `${borderRadius}px` }}
+                                className={`relative overflow-hidden cursor-move touch-pan-none transition-all ${shapePreset.shapeClass} ${
+                                  isEditingThis ? 'ring-4 ring-indigo-400 border-indigo-400 shadow-2xl z-10 scale-[1.02]' : 'border border-slate-800 hover:border-slate-600'
+                                }`}
+                              >
+                                <div className="w-full h-full relative overflow-hidden flex items-center justify-center">
+                                  <img
+                                    src={img.url}
+                                    alt={img.name}
+                                    draggable={false}
+                                    style={{
+                                      objectFit: img.fitMode === 'contain' ? 'contain' : 'cover',
+                                      filter: `brightness(${img.brightness}%) contrast(${img.contrast}%) saturate(${img.saturation}%) sepia(${img.sepia}%) hue-rotate(${img.hueRotate}deg) blur(${img.blur}px)`,
+                                      transform: `translate(${img.panX}%, ${img.panY}%) scale(${(img.flipH ? -1 : 1) * (img.zoom || 1)}, ${(img.flipV ? -1 : 1) * (img.zoom || 1)}) rotate(${img.rotation}deg)`
+                                    }}
+                                    className="w-full h-full pointer-events-none transition-transform duration-75"
+                                  />
+                                </div>
+
+                                <div className="absolute top-1 left-1 flex space-x-1 pointer-events-none z-10">
+                                  {img.isAutoEnhanced && (
+                                    <span className="bg-emerald-950/90 border border-emerald-500/50 text-emerald-300 text-[8px] px-1 py-0.5 rounded font-mono font-bold">AUTO</span>
+                                  )}
+                                  {img.cartoonFx && img.cartoonFx !== 'none' && (
+                                    <span className="bg-purple-950/90 border border-purple-500/50 text-purple-300 text-[8px] px-1 py-0.5 rounded font-mono">{img.cartoonFx}</span>
+                                  )}
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+
+                        {placedElements.map(el => (
+                          <div
+                            key={el.id}
+                            onMouseDown={(e) => handleElementMouseDown(e, el.id)}
+                            onTouchStart={(e) => handleElementMouseDown(e, el.id)}
+                            style={{
+                              left: `${el.x}%`,
+                              top: `${el.y}%`,
+                              fontSize: `${el.size}px`,
+                              color: el.color || 'inherit',
+                              background: el.bg || 'transparent'
+                            }}
+                            className={`absolute cursor-move touch-pan-none p-1 rounded transition-all select-none z-30 ${
+                              selectedElementId === el.id ? 'ring-2 ring-indigo-400 bg-indigo-950/40' : ''
+                            }`}
+                          >
+                            {el.content}
+                            {selectedElementId === el.id && (
+                              <button
+                                type="button"
+                                onClick={(e) => { e.stopPropagation(); removeSelectedElement(el.id); }}
+                                className="absolute -top-2 -right-2 bg-rose-600 text-white rounded-full w-4 h-4 text-[9px] flex items-center justify-center"
+                              >
+                                ✕
+                              </button>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                {/* BOTTOM TOOL DOCK CONTAINER */}
+                <div className="w-full bg-slate-900/90 border border-slate-800 rounded-2xl p-4 space-y-4 shadow-xl">
+                  <div className="flex overflow-x-auto space-x-2 pb-2 border-b border-slate-800 scrollbar-none">
+                    <button
+                      onClick={() => setActiveToolCategory('edit')}
+                      className={`px-3 py-1.5 rounded-xl text-xs font-semibold flex items-center space-x-1.5 whitespace-nowrap transition-all ${
+                        activeToolCategory === 'edit' ? 'bg-indigo-600 text-white' : 'bg-slate-950 text-slate-400 hover:text-slate-200 border border-slate-800'
+                      }`}
+                    >
+                      <Icon name="sliders" className="w-3.5 h-3.5" />
+                      <span>Auto & Manual Edit</span>
+                    </button>
+
+                    <button
+                      onClick={() => setActiveToolCategory('size')}
+                      className={`px-3 py-1.5 rounded-xl text-xs font-semibold flex items-center space-x-1.5 whitespace-nowrap transition-all ${
+                        activeToolCategory === 'size' ? 'bg-indigo-600 text-white' : 'bg-slate-950 text-slate-400 hover:text-slate-200 border border-slate-800'
+                      }`}
+                    >
+                      <Icon name="frame" className="w-3.5 h-3.5 text-blue-400" />
+                      <span>Universal Frame Sizes</span>
+                    </button>
+
+                    <button
+                      onClick={() => setActiveToolCategory('drawing_fx')}
+                      className={`px-3 py-1.5 rounded-xl text-xs font-semibold flex items-center space-x-1.5 whitespace-nowrap transition-all ${
+                        activeToolCategory === 'drawing_fx' ? 'bg-indigo-600 text-white' : 'bg-slate-950 text-slate-400 hover:text-slate-200 border border-slate-800'
+                      }`}
+                    >
+                      <Icon name="pen-tool" className="w-3.5 h-3.5 text-purple-400" />
+                      <span>Pencil Sketch & Cartoon</span>
+                    </button>
+
+                    <button
+                      onClick={() => setActiveToolCategory('stickers_text')}
+                      className={`px-3 py-1.5 rounded-xl text-xs font-semibold flex items-center space-x-1.5 whitespace-nowrap transition-all ${
+                        activeToolCategory === 'stickers_text' ? 'bg-indigo-600 text-white' : 'bg-slate-950 text-slate-400 hover:text-slate-200 border border-slate-800'
+                      }`}
+                    >
+                      <Icon name="smile" className="w-3.5 h-3.5 text-amber-400" />
+                      <span>Drag Emojis & Text</span>
+                    </button>
+
+                    <button
+                      onClick={() => setActiveToolCategory('card')}
+                      className={`px-3 py-1.5 rounded-xl text-xs font-semibold flex items-center space-x-1.5 whitespace-nowrap transition-all ${
+                        activeToolCategory === 'card' ? 'bg-indigo-600 text-white' : 'bg-slate-950 text-slate-400 hover:text-slate-200 border border-slate-800'
+                      }`}
+                    >
+                      <Icon name="gift" className="w-3.5 h-3.5 text-pink-400" />
+                      <span>Greeting Card</span>
+                    </button>
+
+                    <button
+                      onClick={() => setActiveToolCategory('bg')}
+                      className={`px-3 py-1.5 rounded-xl text-xs font-semibold flex items-center space-x-1.5 whitespace-nowrap transition-all ${
+                        activeToolCategory === 'bg' ? 'bg-indigo-600 text-white' : 'bg-slate-950 text-slate-400 hover:text-slate-200 border border-slate-800'
+                      }`}
+                    >
+                      <Icon name="palette" className="w-3.5 h-3.5" />
+                      <span>Crop & Merge BG</span>
+                    </button>
+
+                    <button
+                      onClick={() => setActiveToolCategory('grid')}
+                      className={`px-3 py-1.5 rounded-xl text-xs font-semibold flex items-center space-x-1.5 whitespace-nowrap transition-all ${
+                        activeToolCategory === 'grid' ? 'bg-indigo-600 text-white' : 'bg-slate-950 text-slate-400 hover:text-slate-200 border border-slate-800'
+                      }`}
+                    >
+                      <Icon name="grid" className="w-3.5 h-3.5" />
+                      <span>Layout Engine</span>
+                    </button>
+
+                    <button
+                      onClick={() => setActiveToolCategory('export')}
+                      className={`px-3 py-1.5 rounded-xl text-xs font-semibold flex items-center space-x-1.5 whitespace-nowrap transition-all ${
+                        activeToolCategory === 'export' ? 'bg-emerald-600 text-white' : 'bg-slate-950 text-slate-400 hover:text-slate-200 border border-slate-800'
+                      }`}
+                    >
+                      <Icon name="download" className="w-3.5 h-3.5 text-emerald-400" />
+                      <span>Export</span>
+                    </button>
+                  </div>
+
+                  {activeToolCategory === 'edit' && (
+                    <div className="space-y-4">
+                      <div className="flex flex-wrap items-center justify-between gap-2 bg-slate-950 p-3 rounded-xl border border-slate-800">
+                        <div className="flex items-center space-x-2">
+                          <button
+                            onClick={() => toggleAutoEnhance()}
+                            disabled={!currentEditingImg}
+                            className={`px-3 py-1.5 rounded-lg text-xs font-bold flex items-center space-x-1.5 transition-all ${
+                              currentEditingImg?.isAutoEnhanced
+                                ? 'bg-emerald-500 text-slate-950 shadow-lg shadow-emerald-500/20'
+                                : 'bg-slate-800 text-emerald-400 hover:bg-slate-700 disabled:opacity-40'
+                            }`}
+                          >
+                            <Icon name="wand-2" className="w-3.5 h-3.5" />
+                            <span>{currentEditingImg?.isAutoEnhanced ? 'Auto Enhanced ON' : 'Auto Enhance Selected'}</span>
+                          </button>
+
+                          <button
+                            onClick={applyAutoEnhanceToAll}
+                            className="px-3 py-1.5 bg-slate-900 border border-slate-800 hover:border-slate-700 text-slate-300 rounded-lg text-xs"
+                          >
+                            Auto Enhance All Photos
+                          </button>
+                        </div>
+
+                        {currentEditingImg && (
+                          <span className="text-xs text-indigo-400 font-medium">
+                            Selected: <code className="text-slate-200">{currentEditingImg.name}</code>
+                          </span>
+                        )}
+                      </div>
+
+                      {currentEditingImg ? (
+                        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 text-xs bg-slate-950/60 p-4 rounded-xl border border-slate-800">
+                          <div>
+                            <div className="flex justify-between text-slate-400 mb-1">
+                              <span>Brightness</span>
+                              <span>{currentEditingImg.brightness}%</span>
+                            </div>
+                            <input
+                              type="range" min="20" max="200"
+                              value={currentEditingImg.brightness}
+                              onChange={(e) => updateEditingProps('brightness', parseInt(e.target.value, 10))}
+                              className="w-full accent-indigo-500 h-1.5 bg-slate-800 rounded-lg"
+                            />
+                          </div>
+
+                          <div>
+                            <div className="flex justify-between text-slate-400 mb-1">
+                              <span>Contrast</span>
+                              <span>{currentEditingImg.contrast}%</span>
+                            </div>
+                            <input
+                              type="range" min="20" max="200"
+                              value={currentEditingImg.contrast}
+                              onChange={(e) => updateEditingProps('contrast', parseInt(e.target.value, 10))}
+                              className="w-full accent-indigo-500 h-1.5 bg-slate-800 rounded-lg"
+                            />
+                          </div>
+
+                          <div>
+                            <div className="flex justify-between text-slate-400 mb-1">
+                              <span>Saturation</span>
+                              <span>{currentEditingImg.saturation}%</span>
+                            </div>
+                            <input
+                              type="range" min="0" max="200"
+                              value={currentEditingImg.saturation}
+                              onChange={(e) => updateEditingProps('saturation', parseInt(e.target.value, 10))}
+                              className="w-full accent-indigo-500 h-1.5 bg-slate-800 rounded-lg"
+                            />
+                          </div>
+                        </div>
+                      ) : (
+                        <div className="text-center py-3 text-xs text-slate-500">
+                          Click any photo frame above to adjust brightness, contrast, and saturation.
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  {activeToolCategory === 'size' && (
+                    <div className="space-y-4 bg-slate-950 p-4 rounded-xl border border-slate-800 text-xs">
+                      <div className="flex flex-wrap items-center justify-between gap-3 pb-3 border-b border-slate-800">
+                        <div className="flex items-center space-x-2">
+                          <span className="font-semibold text-slate-200">Orientation:</span>
+                          <div className="flex bg-slate-900 rounded-lg p-0.5 border border-slate-800">
+                            <button
+                              onClick={() => setOrientation('portrait')}
+                              className={`px-3 py-1 rounded-md text-xs font-semibold ${orientation === 'portrait' ? 'bg-indigo-600 text-white' : 'text-slate-400'}`}
+                            >
+                              Portrait
+                            </button>
+                            <button
+                              onClick={() => setOrientation('landscape')}
+                              className={`px-3 py-1 rounded-md text-xs font-semibold ${orientation === 'landscape' ? 'bg-indigo-600 text-white' : 'text-slate-400'}`}
+                            >
+                              Landscape
+                            </button>
+                          </div>
+                        </div>
+
+                        <button
+                          onClick={() => setIsCustomDimensions(!isCustomDimensions)}
+                          className={`px-3 py-1 rounded-lg border font-semibold ${isCustomDimensions ? 'bg-indigo-600 border-indigo-400 text-white' : 'bg-slate-900 border-slate-800 text-slate-400'}`}
+                        >
+                          {isCustomDimensions ? 'Manual Sizes Active' : 'Switch to Manual Size Input'}
+                        </button>
+                      </div>
+
+                      {isCustomDimensions ? (
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 bg-slate-900/60 p-4 rounded-xl border border-slate-800">
+                          <div>
+                            <label className="block text-slate-400 mb-1">Custom Width (px)</label>
+                            <input
+                              type="number"
+                              value={manualWidth}
+                              onChange={(e) => setManualWidth(parseInt(e.target.value, 10) || 800)}
+                              className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-white"
+                            />
+                          </div>
+                          <div>
+                            <label className="block text-slate-400 mb-1">Custom Height (px)</label>
+                            <input
+                              type="number"
+                              value={manualHeight}
+                              onChange={(e) => setManualHeight(parseInt(e.target.value, 10) || 800)}
+                              className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-white"
+                            />
+                          </div>
+                        </div>
+                      ) : (
+                        <div className="space-y-4 max-h-64 overflow-y-auto pr-1">
+                          {FRAME_SIZE_CATEGORIES.map((cat, idx) => (
+                            <div key={idx} className="space-y-2">
+                              <h4 className="font-bold text-indigo-300 border-b border-slate-800/80 pb-1">{cat.category}</h4>
+                              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                                {cat.sizes.map(size => (
+                                  <button
+                                    key={size.id}
+                                    onClick={() => setSelectedSizeId(size.id)}
+                                    className={`p-2.5 rounded-xl border text-left transition-all ${
+                                      selectedSizeId === size.id
+                                        ? 'bg-indigo-600/30 border-indigo-400 text-indigo-200 font-bold shadow-md ring-1 ring-indigo-400'
+                                        : 'bg-slate-900 border-slate-800 text-slate-400 hover:border-slate-700'
+                                    }`}
+                                  >
+                                    <span className="block font-semibold text-white text-xs">{size.label}</span>
+                                    <span className="block text-[10px] text-slate-400 mt-0.5">{size.desc}</span>
+                                  </button>
+                                ))}
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  {activeToolCategory === 'drawing_fx' && (
+                    <div className="space-y-4 bg-slate-950 p-4 rounded-xl border border-slate-800">
+                      <div className="flex flex-wrap justify-between items-center gap-2 mb-2">
+                        <h3 className="text-xs font-semibold text-purple-300">Pencil Sketch & Cartoon Drawing Filters</h3>
+                        <button
+                          onClick={convertSelectedToPencil}
+                          className="px-3 py-1 bg-purple-600 hover:bg-purple-500 text-white rounded-lg text-xs font-bold shadow"
+                        >
+                          Convert Selected to Pencil Sketch
+                        </button>
+                      </div>
+                      <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-2">
+                        {CARTOON_FX_PRESETS.map(fx => (
+                          <button
+                            key={fx.id}
+                            onClick={() => {
+                              if (currentEditingImg) updateEditingProps('cartoonFx', fx.id);
+                              else applyCartoonFxToAll(fx.id);
+                            }}
+                            className={`p-2 rounded-xl text-xs border text-center transition-all ${
+                              (currentEditingImg?.cartoonFx === fx.id)
+                                ? 'bg-purple-600/30 border-purple-400 text-purple-200 font-bold shadow-md'
+                                : 'bg-slate-900 border-slate-800 text-slate-400 hover:border-slate-700'
+                            }`}
+                          >
+                            {fx.label}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {activeToolCategory === 'stickers_text' && (
+                    <div className="space-y-4 bg-slate-950 p-4 rounded-xl border border-slate-800 text-xs">
+                      <div>
+                        <h3 className="text-xs font-semibold text-amber-300 mb-2">Click to Add Emojis onto Picture</h3>
+                        <div className="flex overflow-x-auto space-x-2 pb-1 scrollbar-none">
+                          {STICKER_PRESETS.map((emoji, idx) => (
+                            <button
+                              key={idx}
+                              onClick={() => addSticker(emoji)}
+                              className="p-2 bg-slate-900 border border-slate-800 hover:bg-slate-800 text-xl rounded-xl transition-all hover:scale-110"
+                            >
+                              {emoji}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+
+                      <div className="pt-3 border-t border-slate-800 space-y-3">
+                        <h3 className="text-xs font-semibold text-slate-200">Custom Text Layer Overlay</h3>
+                        <div className="flex flex-wrap gap-2 items-center">
+                          <input
+                            type="text"
+                            placeholder="Enter text message..."
+                            value={textInput}
+                            onChange={(e) => setTextInput(e.target.value)}
+                            className="flex-1 min-w-[180px] bg-slate-900 border border-slate-800 rounded-lg px-3 py-1.5 text-xs text-white"
+                          />
+                          <input
+                            type="color"
+                            value={textColor}
+                            onChange={(e) => setTextColor(e.target.value)}
+                            title="Text Color"
+                            className="w-8 h-8 rounded border border-slate-700 bg-transparent cursor-pointer"
+                          />
+                          <button
+                            onClick={addCustomText}
+                            className="px-4 py-1.5 bg-indigo-600 hover:bg-indigo-500 text-white font-semibold rounded-lg"
+                          >
+                            Add Text
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
+                  {activeToolCategory === 'card' && (
+                    <div className="space-y-4 bg-slate-950 p-4 rounded-xl border border-slate-800 text-xs">
+                      <h3 className="text-xs font-semibold text-pink-300">Digital Greeting Card Presets</h3>
+                      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2">
+                        {GREETING_CARD_TEMPLATES.map(tpl => (
+                          <button
+                            key={tpl.id}
+                            onClick={() => {
+                              setCardPreset(tpl.id);
+                              if (tpl.title) setCardTitleText(tpl.title);
+                              if (tpl.sub) setCardSubText(tpl.sub);
+                            }}
+                            className={`p-2.5 rounded-xl border text-center transition-all ${
+                              cardPreset === tpl.id ? 'bg-pink-600/30 border-pink-400 text-pink-200 font-bold shadow-md' : 'bg-slate-900 border-slate-800 text-slate-400 hover:border-slate-700'
+                            }`}
+                          >
+                            {tpl.label}
+                          </button>
+                        ))}
+                      </div>
+                      {cardPreset !== 'none' && (
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-2">
+                          <input
+                            type="text"
+                            value={cardTitleText}
+                            onChange={(e) => setCardTitleText(e.target.value)}
+                            placeholder="Greeting Title"
+                            className="bg-slate-900 border border-slate-800 rounded-lg px-3 py-1.5 text-xs text-white"
+                          />
+                          <input
+                            type="text"
+                            value={cardSubText}
+                            onChange={(e) => setCardSubText(e.target.value)}
+                            placeholder="Greeting Subtitle"
+                            className="bg-slate-900 border border-slate-800 rounded-lg px-3 py-1.5 text-xs text-white"
+                          />
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  {activeToolCategory === 'bg' && (
+                    <div className="space-y-3 bg-slate-950 p-4 rounded-xl border border-slate-800">
+                      <div className="flex justify-between items-center">
+                        <h3 className="text-xs font-semibold text-slate-200">Merge with Custom Background Texture</h3>
+                        <button
+                          onClick={() => bgFileInputRef.current?.click()}
+                          className="text-xs text-indigo-400 hover:underline"
+                        >
+                          Upload Background
+                        </button>
+                        <input
+                          type="file"
+                          ref={bgFileInputRef}
+                          onChange={handleCustomBgUpload}
+                          accept="image/*"
+                          className="hidden"
+                        />
+                      </div>
+                      <div className="grid grid-cols-5 sm:grid-cols-10 gap-2">
+                        {PRESET_BG_COLORS.map((bg, idx) => (
+                          <button
+                            key={idx}
+                            onClick={() => setBgColor(bg.value)}
+                            title={bg.label}
+                            style={{ background: bg.value === 'transparent' ? '#1e293b' : bg.value }}
+                            className={`h-9 rounded-lg border transition-all ${
+                              bgColor === bg.value ? 'ring-2 ring-indigo-400 border-white scale-105' : 'border-slate-700 hover:scale-105'
+                            }`}
+                          />
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {activeToolCategory === 'grid' && (
+                    <div className="space-y-4 bg-slate-950 p-4 rounded-xl border border-slate-800 text-xs">
+                      <div className="flex items-center justify-between">
+                        <span className="font-semibold text-slate-200">Grid Arrangement Mode</span>
+                        <div className="flex bg-slate-900 rounded-lg p-0.5 border border-slate-800">
+                          <button
+                            onClick={() => setLayoutMode('auto')}
+                            className={`px-3 py-1 text-xs rounded-md ${layoutMode === 'auto' ? 'bg-indigo-600 text-white' : 'text-slate-400'}`}
+                          >
+                            Auto Grid
+                          </button>
+                          <button
+                            onClick={() => setLayoutMode('custom')}
+                            className={`px-3 py-1 text-xs rounded-md ${layoutMode === 'custom' ? 'bg-indigo-600 text-white' : 'text-slate-400'}`}
+                          >
+                            Custom Columns
+                          </button>
+                        </div>
+                      </div>
+
+                      {layoutMode === 'custom' && (
+                        <div>
+                          <div className="flex justify-between text-slate-400 mb-1">
+                            <span>Grid Columns</span>
+                            <span>{columns}</span>
+                          </div>
+                          <input
+                            type="range" min="1" max="8"
+                            value={columns}
+                            onChange={(e) => setColumns(parseInt(e.target.value, 10))}
+                            className="w-full accent-indigo-500 h-1.5 bg-slate-800 rounded-lg"
+                          />
+                        </div>
+                      )}
+
+                      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                        <div>
+                          <div className="flex justify-between text-slate-400 mb-1">
+                            <span>Gap</span>
+                            <span>{gap}px</span>
+                          </div>
+                          <input type="range" min="0" max="40" value={gap} onChange={(e) => setGap(parseInt(e.target.value, 10))} className="w-full accent-indigo-500 h-1.5 bg-slate-800 rounded-lg" />
+                        </div>
+                        <div>
+                          <div className="flex justify-between text-slate-400 mb-1">
+                            <span>Padding</span>
+                            <span>{padding}px</span>
+                          </div>
+                          <input type="range" min="0" max="60" value={padding} onChange={(e) => setPadding(parseInt(e.target.value, 10))} className="w-full accent-indigo-500 h-1.5 bg-slate-800 rounded-lg" />
+                        </div>
+                        <div>
+                          <div className="flex justify-between text-slate-400 mb-1">
+                            <span>Corner Radius</span>
+                            <span>{borderRadius}px</span>
+                          </div>
+                          <input type="range" min="0" max="48" value={borderRadius} onChange={(e) => setBorderRadius(parseInt(e.target.value, 10))} className="w-full accent-indigo-500 h-1.5 bg-slate-800 rounded-lg" />
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
+                  {activeToolCategory === 'export' && (
+                    <div className="space-y-4 bg-slate-950 p-4 rounded-xl border border-slate-800 text-xs">
+                      <div className="flex items-center justify-between">
+                        <span className="font-semibold text-slate-200">Export Format</span>
+                        <div className="flex space-x-2">
+                          {['png', 'jpeg', 'webp'].map(fmt => (
+                            <button
+                              key={fmt}
+                              onClick={() => setExportFormat(fmt)}
+                              className={`px-3 py-1 text-xs uppercase font-bold rounded-lg ${
+                                exportFormat === fmt ? 'bg-indigo-600 text-white' : 'bg-slate-900 text-slate-400 border border-slate-800'
+                              }`}
+                            >
+                              {fmt}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+
+                      <button
+                        onClick={handleDownloadLayout}
+                        disabled={selectedImageIds.length === 0}
+                        className={`w-full py-3 px-4 rounded-xl text-xs font-bold shadow-lg transition-all flex items-center justify-center space-x-2 ${
+                          selectedImageIds.length === 0
+                            ? 'bg-slate-800 text-slate-500 cursor-not-allowed'
+                            : 'bg-emerald-600 hover:bg-emerald-500 text-white shadow-emerald-600/20'
+                        }`}
+                      >
+                        <Icon name="download" className="w-4 h-4" />
+                        <span>Download Universal Print Artwork ({selectedSizeId} - {orientation})</span>
+                      </button>
+                    </div>
+                  )}
+                </div>
+
+              </div>
+            )}
+
+            {activeTab === 'gallery' && (
+              <div className="bg-slate-900/80 border border-slate-800 rounded-2xl p-6 space-y-6">
+                <div className="flex flex-wrap justify-between items-center gap-2 pb-4 border-b border-slate-800">
+                  <div>
+                    <h2 className="text-lg font-bold text-white">Image Library</h2>
+                    <p className="text-xs text-slate-400">Select or deselect pictures for layout compilation (Max Limit: 50 Photos).</p>
+                  </div>
+                  <div className="flex space-x-2">
+                    <button onClick={() => selectAllImages(true)} className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-xs rounded-lg">Select All</button>
+                    <button onClick={() => selectAllImages(false)} className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-xs rounded-lg">Deselect All</button>
+                  </div>
+                </div>
+
+                {images.length === 0 ? (
+                  <div className="text-center py-16">
+                    <p className="text-sm text-slate-400">Library is empty. Upload up to 50 pictures from the Workbench.</p>
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-4">
+                    {images.map(img => (
+                      <div key={img.id} className={`bg-slate-950 border rounded-xl overflow-hidden p-2 ${img.selected ? 'border-indigo-500' : 'border-slate-800 opacity-60'}`}>
+                        <div className="aspect-square relative mb-2">
+                          <img src={img.url} alt={img.name} className="w-full h-full object-cover rounded-lg" />
+                        </div>
+                        <div className="flex justify-between items-center">
+                          <button
+                            onClick={() => toggleSelectImage(img.id)}
+                            className={`px-2 py-0.5 rounded text-[10px] ${img.selected ? 'bg-indigo-600 text-white' : 'bg-slate-800 text-slate-400'}`}
+                          >
+                            {img.selected ? 'Included' : 'Excluded'}
+                          </button>
+                          <button onClick={() => deleteImage(img.id)} className="text-[10px] text-rose-400 hover:underline">Delete</button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {activeTab === 'settings' && (
+              <div className="max-w-xl mx-auto w-full bg-slate-900/80 border border-slate-800 rounded-2xl p-6 space-y-6">
+                <h2 className="text-lg font-bold text-white pb-4 border-b border-slate-800">Account Settings</h2>
+                <div className="bg-slate-950 p-4 rounded-xl border border-slate-800 text-xs">
+                  <span className="text-slate-400 block mb-1">Signed-in User</span>
+                  <span className="text-indigo-300 font-mono font-bold text-sm">{currentUserEmail}</span>
+                </div>
+
+                <form onSubmit={handleChangePassword} className="space-y-4">
+                  <h3 className="text-sm font-semibold text-slate-200">Change Account Password</h3>
+                  {passChangeStatus.msg && (
+                    <div className={`p-3 rounded-lg text-xs ${passChangeStatus.type === 'error' ? 'bg-rose-950/60 text-rose-300' : 'bg-emerald-950/60 text-emerald-300'}`}>
+                      {passChangeStatus.msg}
+                    </div>
+                  )}
+                  <div>
+                    <label className="block text-xs text-slate-400 mb-1">Current Password</label>
+                    <input
+                      type="password"
+                      required
+                      value={oldPassInput}
+                      onChange={(e) => setOldPassInput(e.target.value)}
+                      className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-sm text-white"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs text-slate-400 mb-1">New Password</label>
+                    <input
+                      type="password"
+                      required
+                      value={newPassInput}
+                      onChange={(e) => setNewPassInput(e.target.value)}
+                      className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-sm text-white"
+                    />
+                  </div>
+                  <button type="submit" className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg text-xs font-semibold">
+                    Update Password
+                  </button>
+                </form>
+              </div>
+            )}
+
+            {activeTab === 'admin' && isAdmin && (
+              <div className="bg-slate-900/80 border border-amber-900/40 rounded-2xl p-6 space-y-6">
+                <div className="flex justify-between items-center pb-4 border-b border-slate-800">
+                  <h2 className="text-lg font-bold text-white">Admin Control Panel</h2>
+                  <span className="text-xs bg-amber-950 text-amber-300 border border-amber-800 px-3 py-1 rounded-full font-mono">Secret Admin View</span>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                  <div className="bg-slate-950 p-4 rounded-xl border border-slate-800 space-y-3">
+                    <h3 className="text-sm font-semibold text-white">Update Global Announcement</h3>
+                    <textarea
+                      rows={3}
+                      value={adminNoticeInput}
+                      onChange={(e) => setAdminNoticeInput(e.target.value)}
+                      placeholder="Type announcement notice..."
+                      className="w-full bg-slate-900 border border-slate-800 rounded-lg p-3 text-xs text-white"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => { if (adminNoticeInput.trim()) { setAppNotice(adminNoticeInput.trim()); setAdminNoticeInput(''); } }}
+                      className="px-4 py-2 bg-amber-600 hover:bg-amber-500 text-white text-xs rounded-lg font-semibold"
+                    >
+                      Publish Notice
+                    </button>
+                  </div>
+
+                  <div className="bg-slate-950 p-4 rounded-xl border border-slate-800 space-y-3">
+                    <h3 className="text-sm font-semibold text-white">Registered Users Database ({registeredAccounts.length})</h3>
+                    <div className="space-y-2 max-h-48 overflow-y-auto pr-1">
+                      {registeredAccounts.map(usr => (
+                        <div key={usr.id} className="p-2 bg-slate-900 border border-slate-800 rounded flex justify-between text-xs">
+                          <span>{usr.email}</span>
+                          <span className={`font-mono ${usr.isActivated ? 'text-emerald-400' : 'text-amber-400'}`}>
+                            {usr.isActivated ? 'Active' : 'Pending Activation'}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+          </main>
+
+          {/* PHOTOSHOP WORKSPACE MODAL */}
+          {showPsModal && (
+            <div className="fixed inset-0 bg-black/80 backdrop-blur-md z-50 flex items-center justify-center p-2 sm:p-4">
+              <div className="bg-slate-900 border border-slate-700 rounded-2xl w-full max-w-6xl h-[94vh] flex flex-col shadow-2xl overflow-hidden">
+                <div className="bg-slate-950 px-4 py-3 border-b border-slate-800 flex flex-wrap items-center justify-between gap-2">
+                  <div className="flex items-center space-x-3">
+                    <div className="w-7 h-7 bg-blue-600 rounded-lg flex items-center justify-center text-white font-bold text-xs">Ps</div>
+                    <span className="font-bold text-sm text-white">Photoshop Studio Pro — Universal Print Canvas</span>
+                  </div>
+
+                  <div className="flex items-center space-x-2 sm:space-x-3">
+                    <div className="flex items-center bg-slate-900 border border-slate-800 rounded-lg p-0.5">
+                      <button
+                        onClick={handlePsUndo}
+                        disabled={psHistoryStep <= 0}
+                        className="p-1.5 text-slate-400 hover:text-white disabled:opacity-30"
+                        title="Photoshop Undo"
+                      >
+                        <Icon name="undo-2" className="w-3.5 h-3.5" />
+                      </button>
+                      <button
+                        onClick={handlePsRedo}
+                        disabled={psHistoryStep >= psHistory.length - 1}
+                        className="p-1.5 text-slate-400 hover:text-white disabled:opacity-30"
+                        title="Photoshop Redo"
+                      >
+                        <Icon name="redo-2" className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+
+                    <select
+                      value={psSizeId}
+                      onChange={(e) => setPsSizeId(e.target.value)}
+                      className="bg-slate-900 border border-slate-700 text-xs rounded-lg px-2 py-1 text-slate-200"
+                    >
+                      {ALL_SIZES_FLAT.map(s => (
+                        <option key={s.id} value={s.id}>{s.label}</option>
+                      ))}
+                    </select>
+
+                    <button
+                      onClick={() => setPsOrientation(o => o === 'portrait' ? 'landscape' : 'portrait')}
+                      className="px-2.5 py-1 bg-slate-900 border border-slate-700 text-xs text-slate-300 rounded-lg capitalize"
+                    >
+                      {psOrientation}
+                    </button>
+
+                    <button
+                      onClick={() => setShowPsModal(false)}
+                      className="px-3 py-1 bg-rose-600 hover:bg-rose-500 text-white text-xs rounded-lg font-bold"
+                    >
+                      Close
+                    </button>
+                  </div>
+                </div>
+
+                <div className="flex-1 flex overflow-hidden">
+                  <div className="w-14 bg-slate-950 border-r border-slate-800 flex flex-col items-center py-4 space-y-3">
+                    {[
+                      { id: 'brush', icon: 'edit-3', label: 'Brush' },
+                      { id: 'eraser', icon: 'eraser', label: 'Eraser' },
+                      { id: 'stamp', icon: 'stamp', label: 'Clone Stamp' },
+                      { id: 'eyedropper', icon: 'pipette', label: 'Eyedropper' }
+                    ].map(tool => (
+                      <button
+                        key={tool.id}
+                        onClick={() => setPsActiveTool(tool.id)}
+                        title={tool.label}
+                        className={`p-2.5 rounded-xl transition-all ${
+                          psActiveTool === tool.id ? 'bg-blue-600 text-white shadow-lg' : 'text-slate-400 hover:text-white hover:bg-slate-900'
+                        }`}
+                      >
+                        <Icon name={tool.icon} className="w-4 h-4" />
+                      </button>
+                    ))}
+
+                    <div
+                      title={`Active Color: ${psEyedropperColor}`}
+                      style={{ backgroundColor: psBrushColor }}
+                      className="w-6 h-6 rounded-md border border-white/30 shadow-inner mt-4"
+                    />
+                  </div>
+
+                  <div className="flex-1 bg-slate-950/80 flex flex-col items-center justify-center relative overflow-hidden p-4">
+                    <div className="border border-slate-700 rounded-xl shadow-2xl overflow-hidden bg-slate-900">
+                      <canvas
+                        ref={psCanvasRef}
+                        onMouseDown={handlePsCanvasMouseDown}
+                        className="cursor-crosshair max-w-full max-h-[60vh] object-contain"
+                      />
+                    </div>
+
+                    <div className="mt-3 flex items-center space-x-3 bg-slate-900/90 border border-slate-800 px-4 py-2 rounded-xl text-xs text-slate-300">
+                      <span>Brush Size: {psBrushSize}px</span>
+                      <input
+                        type="range" min="2" max="50"
+                        value={psBrushSize}
+                        onChange={(e) => setPsBrushSize(parseInt(e.target.value, 10))}
+                        className="w-24 accent-blue-500"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="w-72 bg-slate-950 border-l border-slate-800 hidden md:flex flex-col overflow-y-auto p-4 space-y-6 text-xs">
+                    <div className="space-y-3 bg-slate-900/60 p-3 rounded-xl border border-slate-800">
+                      <div className="flex justify-between items-center">
+                        <span className="font-bold text-slate-200">Layers</span>
+                        <button type="button" onClick={addPsLayer} className="px-2 py-1 bg-blue-600 hover:bg-blue-500 text-white rounded font-bold text-[10px]">+ New Layer</button>
+                      </div>
+
+                      <div className="space-y-1.5 max-h-40 overflow-y-auto pr-1">
+                        {psLayers.map(layer => (
+                          <div
+                            key={layer.id}
+                            onClick={() => setPsActiveLayerId(layer.id)}
+                            className={`p-2 rounded-lg border flex items-center justify-between cursor-pointer transition-all ${
+                              psActiveLayerId === layer.id ? 'bg-blue-600/20 border-blue-500 text-white' : 'bg-slate-950 border-slate-800 text-slate-400'
+                            }`}
+                          >
+                            <span className="font-medium">{layer.name}</span>
+                            <button type="button" onClick={(e) => { e.stopPropagation(); deletePsLayer(layer.id); }} className="text-rose-400 hover:text-rose-300 px-1">✕</button>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+
+                    <div className="space-y-3 bg-slate-900/60 p-3 rounded-xl border border-slate-800">
+                      <span className="font-bold text-slate-200 block">Canvas Adjustments</span>
+                      <div>
+                        <div className="flex justify-between text-slate-400 mb-1">
+                          <span>Exposure</span>
+                          <span>{psExposure}</span>
+                        </div>
+                        <input
+                          type="range" min="-5" max="5"
+                          value={psExposure}
+                          onChange={(e) => setPsExposure(parseInt(e.target.value, 10))}
+                          className="w-full accent-blue-500 h-1.5 bg-slate-800 rounded-lg"
+                        />
+                      </div>
+                      <div>
+                        <div className="flex justify-between text-slate-400 mb-1">
+                          <span>Vibrance</span>
+                          <span>{psVibrance}</span>
+                        </div>
+                        <input
+                          type="range" min="-50" max="50"
+                          value={psVibrance}
+                          onChange={(e) => setPsVibrance(parseInt(e.target.value, 10))}
+                          className="w-full accent-blue-500 h-1.5 bg-slate-800 rounded-lg"
+                        />
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+              </div>
+            </div>
+          )}
+
+          <footer className="bg-slate-900/60 border-t border-slate-800/80 py-3 text-center text-xs text-slate-500 mt-auto">
+            Picture Studio Pro & Greeting Card Creator • Up to 50 Photos Processing
+          </footer>
+        </div>
+      );
+    }
+
+    const rootElement = document.getElementById('root');
+    const root = ReactDOM.createRoot(rootElement);
+    root.render(<App />);
+  </script>
+</body>
+</html>
